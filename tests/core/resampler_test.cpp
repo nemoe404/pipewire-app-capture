@@ -197,9 +197,9 @@ using ToneParam = std::tuple<FilterCandidate, std::uint32_t>;
 
 class ResamplerTone : public testing::TestWithParam<ToneParam> {
 protected:
-    [[nodiscard]] FilterCandidate candidate() const { return std::get<0>(GetParam()); }
-    [[nodiscard]] std::uint32_t rate() const { return std::get<1>(GetParam()); }
-    [[nodiscard]] std::vector<float> one_second(double freq_hz, double amplitude) const {
+    [[nodiscard]] static FilterCandidate candidate() { return std::get<0>(GetParam()); }
+    [[nodiscard]] static std::uint32_t rate() { return std::get<1>(GetParam()); }
+    [[nodiscard]] static std::vector<float> one_second(double freq_hz, double amplitude) {
         return sine(rate(), freq_hz, amplitude, rate());
     }
 };
