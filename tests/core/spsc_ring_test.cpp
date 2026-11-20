@@ -27,10 +27,10 @@ TEST(SpscRing, NewRingIsEmpty) {
 
 TEST(SpscRing, PopsInFifoOrder) {
     SpscRing<std::uint32_t> ring(4);
-    for (std::uint32_t value : {1U, 2U, 3U, 4U}) {
+    for (const std::uint32_t value : {1U, 2U, 3U, 4U}) {
         ring.push(value);
     }
-    for (std::uint32_t expected : {1U, 2U, 3U, 4U}) {
+    for (const std::uint32_t expected : {1U, 2U, 3U, 4U}) {
         EXPECT_EQ(ring.try_pop(), std::optional<std::uint32_t>{expected});
     }
     EXPECT_EQ(ring.try_pop(), std::nullopt);
@@ -63,7 +63,7 @@ TEST(SpscRing, DropsOldestWhenFull) {
         ring.push(value);
     }
     EXPECT_EQ(ring.dropped(), 6U);
-    for (std::uint32_t expected : {7U, 8U, 9U, 10U}) {
+    for (const std::uint32_t expected : {7U, 8U, 9U, 10U}) {
         EXPECT_EQ(ring.try_pop(), std::optional<std::uint32_t>{expected});
     }
     EXPECT_EQ(ring.try_pop(), std::nullopt);
