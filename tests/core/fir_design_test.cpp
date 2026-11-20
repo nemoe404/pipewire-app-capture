@@ -27,18 +27,19 @@ constexpr std::array<RateRatio, 2> kRatios{{{.up = 1, .down = 3}, {.up = 160, .d
 // Per-branch DC gain tolerance of each candidate (the passband tolerance of the plan).
 constexpr double dc_tolerance(FilterCandidate candidate) {
     switch (candidate) {
-        case FilterCandidate::Hann8:
-            return 2e-2;
-        case FilterCandidate::Kaiser16:
-            return 3.6e-4;
-        case FilterCandidate::Kaiser32:
-            return 1.2e-4;
+    case FilterCandidate::Hann8:
+        return 2e-2;
+    case FilterCandidate::Kaiser16:
+        return 3.6e-4;
+    case FilterCandidate::Kaiser32:
+        return 1.2e-4;
     }
     return 0.0;
 }
 
 double sum_of(std::span<const float> values) {
-    return std::ranges::fold_left(values, 0.0, [](double acc, float v) { return acc + static_cast<double>(v); });
+    return std::ranges::fold_left(values, 0.0,
+                                  [](double acc, float v) { return acc + static_cast<double>(v); });
 }
 
 TEST(FirDesign, SpecTableAndCandidateOrder) {
@@ -89,7 +90,8 @@ TEST(FirDesign, PrototypeIsSymmetricWithCentrePeak) {
             const std::size_t last = h.size() - 1;
             const std::size_t centre = last / 2;
 
-            const float peak = *std::ranges::max_element(h, {}, [](float v) { return std::fabs(v); });
+            const float peak =
+                *std::ranges::max_element(h, {}, [](float v) { return std::fabs(v); });
             const float max_abs = std::fabs(peak);
 
             // Mirror pairs: compare the first half with the reversed second half.
@@ -108,7 +110,7 @@ TEST(FirDesign, PrototypeSumEqualsUp) {
         const FilterSpec spec = spec_for(candidate);
         for (const RateRatio ratio : kRatios) {
             const double sum = sum_of(design_prototype(spec, ratio.up, ratio.down));
-            const double up = static_cast<double>(ratio.up);
+            const auto up = static_cast<double>(ratio.up);
             EXPECT_NEAR(sum, up, 1e-5 * up) << spec.name << " up=" << ratio.up;
         }
     }
@@ -120,7 +122,7 @@ TEST(FirDesign, EveryPolyphaseBranchHasUnityDcGain) {
         for (const RateRatio ratio : kRatios) {
             const std::vector<float> h = design_prototype(spec, ratio.up, ratio.down);
             const double tol = dc_tolerance(candidate);
-            for (std::uint32_t p = 0; p < ratio.up; ++p) {  // one branch per output phase
+            for (std::uint32_t p = 0; p < ratio.up; ++p) { // one branch per output phase
                 // Strided view h[p], h[p + up], h[p + 2 up], ...
                 const auto branch = h | std::views::drop(p) | std::views::stride(ratio.up);
                 const double gain = std::ranges::fold_left(
@@ -132,7 +134,7 @@ TEST(FirDesign, EveryPolyphaseBranchHasUnityDcGain) {
 }
 
 TEST(FirDesign, WindowEndpoints) {
-    constexpr std::size_t length = 193;  // odd, as every prototype is
+    constexpr std::size_t length = 193; // odd, as every prototype is
     constexpr std::size_t centre = (length - 1) / 2;
 
     constexpr double beta = 8.6;
@@ -146,5 +148,5 @@ TEST(FirDesign, WindowEndpoints) {
     EXPECT_NEAR(hann(centre, length), 1.0, 1e-12);
 }
 
-}  // namespace
-}  // namespace pwcap::core
+} // namespace
+} // namespace pwcap::core
