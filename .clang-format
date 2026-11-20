@@ -1,0 +1,14 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -4
+PointerAlignment: Left
+ReferenceAlignment: Left
+NamespaceIndentation: None
+FixNamespaceComments: true
+InsertBraces: true
+# Keep the std / POSIX / third-party / project include groups separated.
+IncludeBlocks: Preserve
+Standard: Latest
+...

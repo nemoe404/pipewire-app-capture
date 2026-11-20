@@ -1,0 +1,19 @@
+# Test-directory clang-tidy policy: inherits the root and disables only checks that fire inside
+# GoogleTest macro expansions. Comments live above the key, not inside the Checks value.
+#
+#   cert-err58-cpp                                    comes from the gtest macro expansion (static test registration)
+#   cppcoreguidelines-avoid-non-const-global-variables comes from the gtest macro expansion
+#   cppcoreguidelines-owning-memory                   comes from the gtest macro expansion
+#   cppcoreguidelines-special-member-functions        comes from the gtest macro expansion (generated fixture classes)
+#   cppcoreguidelines-avoid-goto                      comes from the gtest macro expansion (ASSERT_* helpers)
+#   readability-function-cognitive-complexity         comes from the gtest macro expansion
+---
+InheritParentConfig: true
+Checks: >
+  -cert-err58-cpp,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-avoid-goto,
+  -readability-function-cognitive-complexity
+...

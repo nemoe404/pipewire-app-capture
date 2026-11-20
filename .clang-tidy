@@ -1,0 +1,36 @@
+# Root clang-tidy policy; applies to src/core. Later globs override earlier ones, so the
+# disables sit last in Checks. Comments live here, above the key: a '#' line inside a YAML
+# block scalar is part of the string, not a comment.
+#
+# Disabled checks and why:
+#   modernize-use-trailing-return-type            style only
+#   readability-identifier-length                 DSP and index names such as n, k
+#   misc-include-cleaner                          clangd's include-cleaner is the only include authority
+#   bugprone-easily-swappable-parameters          fires on (snapshot, selection) style signatures whose types already differ
+#   readability-magic-numbers                     DSP constants and test tables
+#   cppcoreguidelines-avoid-magic-numbers         alias of readability-magic-numbers
+#
+# bugprone-narrowing-conversions stays enabled (clang-tidy 21 name;
+# cppcoreguidelines-narrowing-conversions is its alias).
+---
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -misc-include-cleaner,
+  -bugprone-easily-swappable-parameters,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/src/core/.*'
+...
