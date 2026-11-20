@@ -40,11 +40,23 @@ pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe
 - **Linux with PipeWire only.** PulseAudio is supported through `pipewire-pulse`, not as a
   separate server. X11 (the X Window System), Wayland screencasting and macOS/Windows are out
   of scope.
-- **Browser tabs are not separable by default.** Google Meet runs inside Chrome or Firefox,
-  which may share one stream for every tab. Matching on the tab title is a best effort and is
-  not guaranteed.
-- **Stream identity can change.** Some applications create a new stream per call. The library
-  re-matches when that happens, but a few samples can be lost during the switch.
+- **Browser tabs: some can be told apart, some cannot.** Tested on PipeWire 1.6.2 with two
+  playing tabs in each of Brave 1.100.58 (Chromium-based) and Firefox 160.0-1, both snap builds:
+  each browser gave one output node per tab. Firefox puts the page title in `media.name`, so its
+  tabs can be matched by that property. Brave's two nodes carry the same properties and differ
+  only in id and `object.serial`, so a Brave tab cannot be matched by node properties. Not tested:
+  Google Chrome itself, WebRTC calls such as Google Meet, other versions or packaging.
+- **A stream restart drops manual links.** Tested on PipeWire 1.6.2 with WirePlumber 0.5.13:
+  when an application's stream is killed and started again, its links to the speakers come back
+  by themselves within about 10 to 17 ms, but a capture link made by hand disappears about 2 ms
+  after the kill and is not re-created within 3 s. Node ids, port ids and `object.serial` all
+  change on restart. Not tested: pause and resume, browsers, Zoom, other versions.
+- **Targeting by `target.object` is only partly verified.** On the same versions, a capture
+  stream targeted by serial or by name was linked to the right application while it played,
+  with the same links as manual linking. After the application's stream restarted, a stream
+  targeted by name was linked to the microphone within about 6 ms; with
+  `node.dont-fallback=true` the stream was removed instead. `target.object` was not tested with
+  `node.autoconnect=false`, the setting the capture stream is meant to use.
 - **Recording a call may need consent.** Many jurisdictions require every participant's
   consent to record. You are responsible for that. This library records what you point it at
   and does nothing to notify anyone.
