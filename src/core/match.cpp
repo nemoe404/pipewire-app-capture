@@ -16,6 +16,10 @@ bool hits(const Pattern& pattern, std::string_view field) noexcept {
     switch (pattern.kind) {
         case MatchKind::Exact:
             return field == pattern.text;
+        case MatchKind::Prefix:
+            return field.starts_with(pattern.text);
+        case MatchKind::Substring:
+            return field.contains(pattern.text);
     }
     std::unreachable();
 }
@@ -35,7 +39,9 @@ bool is_wildcard(const Match& match) noexcept {
 
 std::expected<Selection, SelectionError> Selection::make(Match include,
                                                          std::vector<Match> exclude) {
-    if (is_wildcard(include)) {
+    // An all-wildcard include would select every application, and an all-wildcard exclude would
+    // silently exclude every node; both are rejected here, at open time (CORE-03).
+    if (is_wildcard(include) || std::ranges::any_of(exclude, is_wildcard)) {
         return std::unexpected{SelectionError::InvalidMatch};
     }
     return Selection{std::move(include), std::move(exclude)};

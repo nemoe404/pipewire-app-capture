@@ -77,6 +77,7 @@ TEST(MatchRules, SubstringTreatsGlobCharactersLiterally) {
 }
 
 TEST(MatchRules, EmptyTextIsWildcard) {
+    // Loop over the three kinds: the wildcard rule must not depend on the kind.
     for (const auto kind : {MatchKind::Exact, MatchKind::Prefix, MatchKind::Substring}) {
         const Match match{.app_name = Pattern{"", kind}};
         EXPECT_TRUE(matches(match, firefox_tab("x")));

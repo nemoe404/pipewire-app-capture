@@ -13,7 +13,7 @@
 
 namespace pwcap::core {
 
-enum class MatchKind : std::uint8_t { Exact };
+enum class MatchKind : std::uint8_t { Exact, Prefix, Substring };
 
 // Empty text is a wildcard. Comparison is a case-sensitive byte comparison with no glob syntax.
 struct Pattern {
