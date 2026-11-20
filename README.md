@@ -1,11 +1,12 @@
 # pipewire-audio-capture
 
-Capture the audio of **one application** on Linux — a Zoom call, a Google Meet tab, a media
-player — without recording the system mix or your microphone. The audio goes out as raw PCM
-on stdout or into a C++ callback, ready for a script, `whisper.cpp`, or any other consumer.
+Capture the audio of **one application** on Linux (a Zoom call, a Google Meet tab, a media
+player) without recording the system mix or your microphone. The audio goes out as raw PCM
+(pulse-code modulation: uncompressed samples, no header) on stdout or into a C++ callback,
+ready for a script, `whisper.cpp`, or any other consumer.
 
-> **Status: pre-alpha.** The link-routing mechanism has been checked by hand on PipeWire 1.6.2
-> (see [`docs/spikes/s0-fanout-probe.md`](docs/spikes/s0-fanout-probe.md)). The library, CLI
+> **Status: pre-alpha.** The link-routing mechanism has been checked by hand on PipeWire 1.6.2.
+> The library, CLI (command-line interface)
 > and per-app matching are not written yet. Nothing below is a finished feature until a release
 > tag says so.
 
@@ -17,7 +18,7 @@ around, which silences the call for you. This library routes the one application
 into a capture stream and leaves the application playing on your speakers as before.
 
 ```bash
-# planned interface — not implemented yet
+# planned interface - not implemented yet
 pwcap list
 pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe.py
 ```
@@ -26,16 +27,19 @@ pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe
 
 - Select sources by `application.name`, `application.process.binary`, `node.name`, or
   `media.name`, with include and exclude rules.
-- Output as 16 kHz mono PCM (the format Whisper expects) or the native format, on stdout or
-  to a C++ callback.
+- Output as 16 kHz (kilohertz, samples per second) mono PCM (the format Whisper expects) or
+  the native format, on stdout or to a C++ callback.
 - Follow the application as its streams appear and disappear (a call starts, a tab closes).
-- A C++23 API (`std::expected` errors, RAII handles) and a CLI built on the same core.
+- A C++23 API (application programming interface; `std::expected` errors, RAII handles, that
+  is Resource Acquisition Is Initialization, objects that release their resources on destruction)
+  and a CLI built on the same core.
 - Examples: a Python consumer, a `whisper.cpp` pipeline, and a shell one-liner.
 
 ## Limits (read before you rely on it)
 
 - **Linux with PipeWire only.** PulseAudio is supported through `pipewire-pulse`, not as a
-  separate server. X11, Wayland screencasting and macOS/Windows are out of scope.
+  separate server. X11 (the X Window System), Wayland screencasting and macOS/Windows are out
+  of scope.
 - **Browser tabs are not separable by default.** Google Meet runs inside Chrome or Firefox,
   which may share one stream for every tab. Matching on the tab title is a best effort and is
   not guaranteed.
@@ -61,10 +65,11 @@ ctest --preset debug
 ## Related projects
 
 - [venmic](https://github.com/Vencord/venmic) — per-application PipeWire routing for Discord,
-  MPL-2.0. It is a C++ library and a Node addon; its README says it is not meant for standalone
-  use. This project aims at scripts and a documented CLI.
+  MPL-2.0 (Mozilla Public License 2.0). It is a C++ library and a Node addon; its README says it
+  is not meant for standalone use. This project aims at scripts and a documented CLI.
 - [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) — an OBS
-  Studio plugin, GPL-2.0. It is an application plugin, not a library.
+  (Open Broadcaster Software) Studio plugin, GPL-2.0 (GNU General Public License 2.0). It is an
+  application plugin, not a library.
 
 ## Built on
 
