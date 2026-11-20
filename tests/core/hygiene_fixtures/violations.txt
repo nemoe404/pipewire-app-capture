@@ -1,0 +1,20 @@
+// Self-test fixture for cmake/core_hygiene.cmake. SPDX-License-Identifier: Apache-2.0
+// The .txt extension keeps it out of scan mode. It holds exactly one real violation
+// of each rule, plus decoys that must not count.
+
+// --- the two real violations ---
+#include <pipewire/pipewire.h>
+int bad_count = 0;
+
+// --- decoys that must not count ---
+// int in a line comment
+// #include <spa/param/audio/raw.h> in a line comment
+/* int in a block comment
+   #include <pipewire/pipewire.h> in a block comment */
+const char* s1 = "int in a string literal";
+const char* s2 = "an escaped quote \" then int still inside the literal";
+const char* s3 = "#include <pipewire/pipewire.h> inside a string literal";
+char c1 = 'i';
+std::int32_t sample_count = 1'000'000;
+std::uint8_t byte_value = 0;
+std::int32_t print_count = 0;
