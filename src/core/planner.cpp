@@ -19,20 +19,19 @@ LinkPlan plan_links(const GraphSnapshot& snapshot, const Selection& selection,
                     std::span<const PortId> capture_inputs) {
     const auto sources = select_sources(snapshot, selection);
 
-    const auto source_ports =
-        snapshot.ports | std::views::filter([&sources](const PortInfo& port) {
-            return port.direction == Direction::Output &&
-                   std::ranges::binary_search(sources, port.node_id);
-        }) |
-        std::ranges::to<std::vector>();
+    const auto source_ports = snapshot.ports | std::views::filter([&sources](const PortInfo& port) {
+                                  return port.direction == Direction::Output &&
+                                         std::ranges::binary_search(sources, port.node_id);
+                              }) |
+                              std::ranges::to<std::vector>();
 
     // Ids are recycled by the server, so ports are found by id, never indexed by it.
-    const auto input_ports =
-        snapshot.ports | std::views::filter([capture_inputs](const PortInfo& port) {
-            return port.direction == Direction::Input &&
-                   std::ranges::contains(capture_inputs, port.port_id);
-        }) |
-        std::ranges::to<std::vector>();
+    const auto input_ports = snapshot.ports |
+                             std::views::filter([capture_inputs](const PortInfo& port) {
+                                 return port.direction == Direction::Input &&
+                                        std::ranges::contains(capture_inputs, port.port_id);
+                             }) |
+                             std::ranges::to<std::vector>();
 
     auto to_add =
         std::views::cartesian_product(source_ports, input_ports) |
@@ -56,4 +55,4 @@ LinkPlan plan_links(const GraphSnapshot& snapshot, const Selection& selection,
     return LinkPlan{.to_add = std::move(to_add), .to_remove = {}};
 }
 
-}  // namespace pwcap::core
+} // namespace pwcap::core

@@ -18,10 +18,10 @@ struct FieldPair {
 };
 
 constexpr std::array<FieldPair, 4> kFields{{
-    {&Match::app_name, &NodeInfo::app_name},
-    {&Match::binary, &NodeInfo::binary},
-    {&Match::node_name, &NodeInfo::node_name},
-    {&Match::media_name, &NodeInfo::media_name},
+    {.pattern = &Match::app_name, .field = &NodeInfo::app_name},
+    {.pattern = &Match::binary, .field = &NodeInfo::binary},
+    {.pattern = &Match::node_name, .field = &NodeInfo::node_name},
+    {.pattern = &Match::media_name, .field = &NodeInfo::media_name},
 }};
 
 NodeInfo node_with(const FieldPair& pair, std::string value) {
@@ -45,8 +45,8 @@ NodeInfo firefox_tab(std::string media_name) {
 }
 
 TEST(MatchRules, ExactIsCaseSensitiveOnEveryField) {
-    for (const auto& pair : kFields) {  // loop over a fixed table of member pointers
-        const auto match = match_with(pair, Pattern{"Firefox", MatchKind::Exact});
+    for (const auto& pair : kFields) { // loop over a fixed table of member pointers
+        const auto match = match_with(pair, Pattern{.text = "Firefox", .kind = MatchKind::Exact});
         EXPECT_TRUE(matches(match, node_with(pair, "Firefox")));
         EXPECT_FALSE(matches(match, node_with(pair, "firefox")));
         EXPECT_FALSE(matches(match, node_with(pair, "Firefox2")));
@@ -54,7 +54,7 @@ TEST(MatchRules, ExactIsCaseSensitiveOnEveryField) {
 }
 
 TEST(MatchRules, PrefixMatchesOnlyTheStart) {
-    const Match match{.app_name = Pattern{"Fire", MatchKind::Prefix}};
+    const Match match{.app_name = Pattern{.text = "Fire", .kind = MatchKind::Prefix}};
     EXPECT_TRUE(matches(match, firefox_tab("x")));
 
     NodeInfo other;
@@ -63,28 +63,28 @@ TEST(MatchRules, PrefixMatchesOnlyTheStart) {
 }
 
 TEST(MatchRules, SubstringTreatsGlobCharactersLiterally) {
-    const Match inner{.app_name = Pattern{"efo", MatchKind::Substring}};
+    const Match inner{.app_name = Pattern{.text = "efo", .kind = MatchKind::Substring}};
     EXPECT_TRUE(matches(inner, firefox_tab("x")));
 
-    const Match glob{.app_name = Pattern{"Fire*", MatchKind::Substring}};
+    const Match glob{.app_name = Pattern{.text = "Fire*", .kind = MatchKind::Substring}};
     EXPECT_FALSE(matches(glob, firefox_tab("x")));
     NodeInfo literal;
     literal.app_name = "Fire*fox";
     EXPECT_TRUE(matches(glob, literal));
 
-    const Match question{.app_name = Pattern{"Fire?ox", MatchKind::Substring}};
+    const Match question{.app_name = Pattern{.text = "Fire?ox", .kind = MatchKind::Substring}};
     EXPECT_FALSE(matches(question, firefox_tab("x")));
 }
 
 TEST(MatchRules, EmptyTextIsWildcard) {
     // Loop over the three kinds: the wildcard rule must not depend on the kind.
     for (const auto kind : {MatchKind::Exact, MatchKind::Prefix, MatchKind::Substring}) {
-        const Match match{.app_name = Pattern{"", kind}};
+        const Match match{.app_name = Pattern{.text = "", .kind = kind}};
         EXPECT_TRUE(matches(match, firefox_tab("x")));
         EXPECT_TRUE(matches(match, NodeInfo{}));
     }
 
-    const Match only_node_name{.node_name = Pattern{"x", MatchKind::Exact}};
+    const Match only_node_name{.node_name = Pattern{.text = "x", .kind = MatchKind::Exact}};
     NodeInfo node;
     node.node_name = "x";
     node.app_name = "anything";
@@ -92,8 +92,8 @@ TEST(MatchRules, EmptyTextIsWildcard) {
 }
 
 TEST(MatchRules, AllNonEmptyFieldsMustHit) {
-    const Match match{.app_name = Pattern{"Firefox", MatchKind::Exact},
-                      .media_name = Pattern{"pwspike-tab-440", MatchKind::Exact}};
+    const Match match{.app_name = Pattern{.text = "Firefox", .kind = MatchKind::Exact},
+                      .media_name = Pattern{.text = "pwspike-tab-440", .kind = MatchKind::Exact}};
     EXPECT_TRUE(matches(match, firefox_tab("pwspike-tab-440")));
     EXPECT_FALSE(matches(match, firefox_tab("pwspike-tab-880")));
 
@@ -108,24 +108,25 @@ TEST(MatchRules, NonEmptyPatternNeverHitsEmptyField) {
     pw_play.app_name = "pw-play";
     pw_play.node_name = "pwspike-tone440";
 
-    const Match binary{.binary = Pattern{"pw-play", MatchKind::Exact}};
+    const Match binary{.binary = Pattern{.text = "pw-play", .kind = MatchKind::Exact}};
     EXPECT_FALSE(matches(binary, pw_play));
 
-    const Match prefix{.binary = Pattern{"pw", MatchKind::Prefix}};
+    const Match prefix{.binary = Pattern{.text = "pw", .kind = MatchKind::Prefix}};
     EXPECT_FALSE(matches(prefix, pw_play));
-    const Match substring{.binary = Pattern{"play", MatchKind::Substring}};
+    const Match substring{.binary = Pattern{.text = "play", .kind = MatchKind::Substring}};
     EXPECT_FALSE(matches(substring, pw_play));
 }
 
 TEST(Selection, AllWildcardIncludeOrExcludeIsInvalid) {
-    const Match valid{.app_name = Pattern{"Firefox", MatchKind::Exact}};
+    const Match valid{.app_name = Pattern{.text = "Firefox", .kind = MatchKind::Exact}};
 
     const auto wildcard_include = Selection::make(Match{});
     ASSERT_FALSE(wildcard_include.has_value());
     EXPECT_EQ(wildcard_include.error(), SelectionError::InvalidMatch);
 
     // Empty texts of any kind are still all-wildcard.
-    const auto empty_text_include = Selection::make(Match{.app_name = Pattern{"", MatchKind::Prefix}});
+    const auto empty_text_include =
+        Selection::make(Match{.app_name = Pattern{.text = "", .kind = MatchKind::Prefix}});
     ASSERT_FALSE(empty_text_include.has_value());
     EXPECT_EQ(empty_text_include.error(), SelectionError::InvalidMatch);
 
@@ -133,14 +134,14 @@ TEST(Selection, AllWildcardIncludeOrExcludeIsInvalid) {
     ASSERT_FALSE(wildcard_exclude.has_value());
     EXPECT_EQ(wildcard_exclude.error(), SelectionError::InvalidMatch);
 
-    const Match exclude{.media_name = Pattern{"x", MatchKind::Exact}};
+    const Match exclude{.media_name = Pattern{.text = "x", .kind = MatchKind::Exact}};
     const auto ok = Selection::make(valid, std::vector<Match>{exclude});
     EXPECT_TRUE(ok.has_value());
 }
 
 TEST(Selection, ExcludeKeepsOnlyTab440) {
-    const Match include{.app_name = Pattern{"Firefox", MatchKind::Exact}};
-    const Match exclude{.media_name = Pattern{"pwspike-tab-880", MatchKind::Exact}};
+    const Match include{.app_name = Pattern{.text = "Firefox", .kind = MatchKind::Exact}};
+    const Match exclude{.media_name = Pattern{.text = "pwspike-tab-880", .kind = MatchKind::Exact}};
     const auto selection = Selection::make(include, std::vector<Match>{exclude});
     ASSERT_TRUE(selection.has_value());
 
@@ -157,5 +158,5 @@ TEST(Selection, ExcludeKeepsOnlyTab440) {
     EXPECT_TRUE(no_exclude->exclude().empty());
 }
 
-}  // namespace
-}  // namespace pwcap::core
+} // namespace
+} // namespace pwcap::core

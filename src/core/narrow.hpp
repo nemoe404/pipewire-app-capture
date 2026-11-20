@@ -1,4 +1,5 @@
-#pragma once
+#ifndef PWCAP_CORE_NARROW_HPP
+#define PWCAP_CORE_NARROW_HPP
 
 // The one guarded path for narrowing an untrusted integer, for example a size_t that is about to
 // cross into a C API taking a 32-bit integer.
@@ -18,4 +19,6 @@ template <std::integral To, std::integral From>
     return std::nullopt;
 }
 
-}  // namespace pwcap::core
+} // namespace pwcap::core
+
+#endif // PWCAP_CORE_NARROW_HPP

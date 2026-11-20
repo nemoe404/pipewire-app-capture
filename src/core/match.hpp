@@ -1,4 +1,5 @@
-#pragma once
+#ifndef PWCAP_CORE_MATCH_HPP
+#define PWCAP_CORE_MATCH_HPP
 
 // Match rules and the validated Selection built from them. Pure functions over NodeInfo.
 
@@ -17,6 +18,9 @@ enum class MatchKind : std::uint8_t { Exact, Prefix, Substring };
 
 // Empty text is a wildcard. Comparison is a case-sensitive byte comparison with no glob syntax.
 struct Pattern {
+    // Empty initialisers are kept on purpose: without them -Wmissing-designated-field-initializers
+    // (-Werror) rejects every designated initialiser that leaves the member out.
+    // NOLINTNEXTLINE(readability-redundant-member-init)
     std::string text{};
     MatchKind kind{MatchKind::Exact};
 };
@@ -40,8 +44,8 @@ enum class SelectionError : std::uint8_t { InvalidMatch };
 // an all-wildcard include cannot exist.
 class Selection {
 public:
-    [[nodiscard]] static std::expected<Selection, SelectionError> make(
-        Match include, std::vector<Match> exclude = {});
+    [[nodiscard]] static std::expected<Selection, SelectionError>
+    make(Match include, std::vector<Match> exclude = {});
 
     [[nodiscard]] const Match& include() const noexcept { return include_; }
     [[nodiscard]] std::span<const Match> exclude() const noexcept { return exclude_; }
@@ -57,4 +61,6 @@ private:
     std::vector<Match> exclude_;
 };
 
-}  // namespace pwcap::core
+} // namespace pwcap::core
+
+#endif // PWCAP_CORE_MATCH_HPP

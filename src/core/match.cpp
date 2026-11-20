@@ -14,17 +14,17 @@ bool hits(const Pattern& pattern, std::string_view field) noexcept {
         return true;
     }
     switch (pattern.kind) {
-        case MatchKind::Exact:
-            return field == pattern.text;
-        case MatchKind::Prefix:
-            return field.starts_with(pattern.text);
-        case MatchKind::Substring:
-            return field.contains(pattern.text);
+    case MatchKind::Exact:
+        return field == pattern.text;
+    case MatchKind::Prefix:
+        return field.starts_with(pattern.text);
+    case MatchKind::Substring:
+        return field.contains(pattern.text);
     }
     std::unreachable();
 }
 
-}  // namespace
+} // namespace
 
 bool matches(const Match& match, const NodeInfo& node) noexcept {
     return hits(match.app_name, node.app_name) && hits(match.binary, node.binary) &&
@@ -52,4 +52,4 @@ bool Selection::selects(const NodeInfo& node) const noexcept {
            std::ranges::none_of(exclude_, [&node](const Match& m) { return matches(m, node); });
 }
 
-}  // namespace pwcap::core
+} // namespace pwcap::core

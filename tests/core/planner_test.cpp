@@ -79,7 +79,8 @@ GraphSnapshot apply(GraphSnapshot snapshot, const LinkPlan& plan) {
 }
 
 Selection node_name_selection(std::string name) {
-    auto selection = Selection::make(Match{.node_name = Pattern{std::move(name), MatchKind::Exact}});
+    auto selection = Selection::make(
+        Match{.node_name = Pattern{.text = std::move(name), .kind = MatchKind::Exact}});
     EXPECT_TRUE(selection.has_value());
     return *std::move(selection);
 }
@@ -88,8 +89,7 @@ constexpr std::array<PortId, 2> kCaptureInputs{138, 130};
 
 TEST(PlannerTracer, LinksOnlyTheSelectedStreamByChannel) {
     const auto snapshot = spike_graph();
-    const auto plan =
-        plan_links(snapshot, node_name_selection("pwspike-tone440"), kCaptureInputs);
+    const auto plan = plan_links(snapshot, node_name_selection("pwspike-tone440"), kCaptureInputs);
 
     const std::vector<LinkInfo> expected{
         LinkInfo{.output_port_id = 124, .input_port_id = 138},
@@ -127,5 +127,5 @@ TEST(PlannerTracer, WildcardIncludeIsRejected) {
     EXPECT_EQ(selection.error(), SelectionError::InvalidMatch);
 }
 
-}  // namespace
-}  // namespace pwcap::core
+} // namespace
+} // namespace pwcap::core

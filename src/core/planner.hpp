@@ -1,4 +1,5 @@
-#pragma once
+#ifndef PWCAP_CORE_PLANNER_HPP
+#define PWCAP_CORE_PLANNER_HPP
 
 // The link planner: a pure function from (snapshot, selection, capture inputs) to the links to add.
 
@@ -11,8 +12,13 @@
 namespace pwcap::core {
 
 struct LinkPlan {
+    // Plain result aggregate: the shell and tests read and designated-initialise both lists, and
+    // making them private would change the public signature that plan 02-05 reads in parallel.
+    // The empty initialisers are kept so -Wmissing-designated-field-initializers stays quiet.
+    // NOLINTBEGIN(misc-non-private-member-variables-in-classes,readability-redundant-member-init)
     std::vector<LinkInfo> to_add{};
     std::vector<LinkInfo> to_remove{};
+    // NOLINTEND(misc-non-private-member-variables-in-classes,readability-redundant-member-init)
 
     [[nodiscard]] bool empty() const noexcept { return to_add.empty() && to_remove.empty(); }
 
@@ -29,4 +35,6 @@ struct LinkPlan {
 [[nodiscard]] LinkPlan plan_links(const GraphSnapshot& snapshot, const Selection& selection,
                                   std::span<const PortId> capture_inputs);
 
-}  // namespace pwcap::core
+} // namespace pwcap::core
+
+#endif // PWCAP_CORE_PLANNER_HPP
