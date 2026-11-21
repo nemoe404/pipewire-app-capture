@@ -9,8 +9,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <numbers>
 #include <random>
+#include <ranges>
 #include <span>
 #include <string>
 #include <tuple>
@@ -56,12 +58,12 @@ std::vector<float> sine(std::uint32_t rate, double freq_hz, double amplitude, st
 std::vector<float> interleave(std::span<const float> mono, std::span<const float> gains) {
     std::vector<float> out;
     out.reserve(mono.size() * gains.size());
-    for (const float v :
-         mono) { // two nested appends; no algorithm expresses the interleave shorter
-        for (const float g : gains) {
-            out.push_back(v * g);
-        }
-    }
+    std::ranges::copy(std::views::cartesian_product(mono, gains) |
+                          std::views::transform([](const auto& pair) {
+                              const auto& [v, g] = pair;
+                              return v * g;
+                          }),
+                      std::back_inserter(out));
     return out;
 }
 
@@ -100,17 +102,17 @@ std::vector<float> run_blocks(Resampler& resampler, std::span<const float> input
     std::vector<float> out;
     std::size_t consumed = 0;
     std::size_t block_index = 0;
+    std::vector<float> scratch;
     while (consumed < total_frames) { // block sizes are data-driven, so the loop is over a cursor
         const std::size_t want = block_sizes[block_index % block_sizes.size()];
         const std::size_t frames = std::min(want, total_frames - consumed);
         ++block_index;
 
         const auto block = input.subspan(consumed * channels, frames * channels);
-        std::vector<float> scratch(resampler.max_output_frames(frames));
+        scratch.resize(resampler.max_output_frames(frames));
         const std::size_t written = resampler.process(block, scratch);
         EXPECT_LE(written, resampler.max_output_frames(frames));
-        out.insert(out.end(), scratch.begin(),
-                   scratch.begin() + static_cast<std::ptrdiff_t>(written));
+        std::ranges::copy(scratch | std::views::take(written), std::back_inserter(out));
 
         consumed += frames;
         EXPECT_EQ(out.size(), expected_cumulative(resampler, consumed));
@@ -147,10 +149,10 @@ ToneFit fit_tone(std::span<const float> y, std::size_t first, std::size_t length
 }
 
 double rms(std::span<const float> y, std::size_t first, std::size_t length) {
-    double sum = 0.0;
-    for (std::size_t n = first; n < first + length; ++n) { // ordered fold over a window
-        sum += static_cast<double>(y[n]) * static_cast<double>(y[n]);
-    }
+    const double sum =
+        std::ranges::fold_left(y.subspan(first, length), 0.0, [](double acc, float v) {
+            return acc + (static_cast<double>(v) * static_cast<double>(v));
+        });
     return std::sqrt(sum / static_cast<double>(length));
 }
 

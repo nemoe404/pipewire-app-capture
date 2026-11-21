@@ -78,7 +78,7 @@ constexpr auto kPoll = 10ms;
 
 int main(int argc, char** argv) {
     const std::span<char*> args{argv, static_cast<std::size_t>(argc)};
-    if (args.size() < 2) {
+    if (argc < 2) {
         return kUsage;
     }
     const std::string_view mode{args[1]};
@@ -104,7 +104,9 @@ int main(int argc, char** argv) {
         const auto listed = pwcap::list_applications();
         return !listed && listed.error() == pwcap::Error::NoPipeWire ? kOk : kFail;
     }
-    if (mode == "hold" && args.size() == 4) {
+    if (mode == "hold" && argc == 4) {
+        // cppcheck-suppress containerOutOfBounds ; argc == 4 is checked above, so args[3] is in
+        // range
         const std::string_view text{args[3]};
         std::int64_t ms = 0;
         const auto [end, error] =
@@ -112,6 +114,8 @@ int main(int argc, char** argv) {
         if (error != std::errc{} || end != std::to_address(text.end()) || ms < 0) {
             return kUsage;
         }
+        // cppcheck-suppress containerOutOfBounds ; argc == 4 is checked above, so args[2] is in
+        // range
         return hold(std::string_view{args[2]}, std::chrono::milliseconds{ms});
     }
     return kUsage;

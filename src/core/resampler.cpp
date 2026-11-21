@@ -50,15 +50,20 @@ Resampler::make(std::uint32_t input_rate, std::uint32_t channels, FilterCandidat
     }
 
     const std::uint32_t divisor = std::gcd(kOutputRate, input_rate);
-    const std::uint32_t up = kOutputRate / divisor;
-    const std::uint32_t down = input_rate / divisor;
+    const std::uint32_t up_factor = kOutputRate / divisor;
+    const std::uint32_t down_factor = input_rate / divisor;
 
     const FilterSpec spec = spec_for(candidate);
-    const std::vector<float> prototype = design_prototype(spec, up, down);
-    const std::size_t taps = (prototype.size() + up - 1) / up;
+    const std::vector<float> prototype = design_prototype(spec, up_factor, down_factor);
+    const std::size_t taps = (prototype.size() + up_factor - 1) / up_factor;
 
-    return Resampler{
-        input_rate, channels, up, down, spec.half_width, taps, split_branches(prototype, up, taps)};
+    return Resampler{input_rate,
+                     channels,
+                     up_factor,
+                     down_factor,
+                     spec.half_width,
+                     taps,
+                     split_branches(prototype, up_factor, taps)};
 }
 
 std::size_t Resampler::max_output_frames(std::size_t input_frames) const noexcept {

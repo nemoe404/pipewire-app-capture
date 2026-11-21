@@ -90,7 +90,7 @@ using Diagnostic = std::move_only_function<void(std::string_view message)>;
 class Capture {
 public:
     // Opens a capture of the application selected by options.include.
-    [[nodiscard]] static std::expected<Capture, Error> open(Options options, Sink sink,
+    [[nodiscard]] static std::expected<Capture, Error> open(const Options& options, Sink sink,
                                                             Diagnostic diagnostic = {});
 
     Capture(const Capture&) = delete;

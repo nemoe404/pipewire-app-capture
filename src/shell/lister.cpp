@@ -305,7 +305,7 @@ void Lister::quit() const { static_cast<void>(pw_main_loop_quit(loop_.get())); }
 
 namespace shell {
 
-std::vector<AppStream> to_app_streams(std::vector<core::NodeInfo> nodes) {
+std::vector<AppStream> to_app_streams(const std::vector<core::NodeInfo>& nodes) {
     auto streams = nodes | std::views::filter([](const core::NodeInfo& node) {
                        return node.media_class == core::kStreamOutputAudio;
                    }) |

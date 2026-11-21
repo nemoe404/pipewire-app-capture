@@ -584,14 +584,14 @@ void Reconciler::reconcile() {
     // linked(): a registry link, pending links excluded, from a selected source to a capture input.
     const std::vector<core::NodeId> sources = core::select_sources(snapshot, selection_);
     track_sources(sources);
-    const bool linked = std::ranges::any_of(snapshot.links, [&](const core::LinkInfo& link) {
+    const bool now_linked = std::ranges::any_of(snapshot.links, [&](const core::LinkInfo& link) {
         const auto output =
             std::ranges::find(snapshot.ports, link.output_port_id, &core::PortInfo::port_id);
         return output != snapshot.ports.end() && !output->monitor &&
                std::ranges::contains(sources, output->node_id) &&
                std::ranges::contains(inputs, link.input_port_id);
     });
-    linked_.store(linked);
+    linked_.store(now_linked);
 
     // Plan against the registry plus the links we asked for and the registry has not announced.
     // Without them, the done event of a sync sent before a link request would create it twice.

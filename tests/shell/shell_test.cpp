@@ -82,8 +82,10 @@ struct ProbeRun {
 [[nodiscard]] std::vector<char*> null_terminated_pointers(std::vector<std::string>& storage) {
     std::vector<char*> pointers;
     pointers.reserve(storage.size() + 1);
-    std::ranges::transform(storage, std::back_inserter(pointers),
-                           [](std::string& entry) { return entry.data(); });
+    std::ranges::transform(
+        storage, std::back_inserter(pointers),
+        // cppcheck-suppress constParameterReference ; argv is char*, so data() must be non-const
+        [](std::string& entry) { return entry.data(); });
     pointers.push_back(nullptr);
     return pointers;
 }
@@ -279,7 +281,7 @@ TEST(OpenErrors, WildcardExcludeIsInvalidMatch) {
     pwcap::Options options;
     options.include.node_name = "x";
     options.exclude.push_back(pwcap::Match{});
-    const auto result = pwcap::Capture::open(std::move(options), discarding_sink());
+    const auto result = pwcap::Capture::open(options, discarding_sink());
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), pwcap::Error::InvalidMatch);
 }
@@ -287,7 +289,7 @@ TEST(OpenErrors, WildcardExcludeIsInvalidMatch) {
 TEST(OpenErrors, EmptySinkIsInvalidOptions) {
     pwcap::Options options;
     options.include.node_name = "x";
-    const auto result = pwcap::Capture::open(std::move(options), pwcap::Sink{});
+    const auto result = pwcap::Capture::open(options, pwcap::Sink{});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), pwcap::Error::InvalidOptions);
 }

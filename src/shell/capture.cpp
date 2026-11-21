@@ -163,7 +163,8 @@ std::expected<void, Error> Capture::Impl::build(core::Selection selection, bool 
     return reconciler->start(*node_id, kConnectTimeout);
 }
 
-std::expected<Capture, Error> Capture::open(Options options, Sink sink, Diagnostic diagnostic) {
+std::expected<Capture, Error> Capture::open(const Options& options, Sink sink,
+                                            Diagnostic diagnostic) {
     // Validation first: nothing below touches PipeWire until the arguments are known good.
     auto selection = core::Selection::make(to_core_match(options.include),
                                            options.exclude | std::views::transform(to_core_match) |

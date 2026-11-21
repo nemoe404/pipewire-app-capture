@@ -86,8 +86,10 @@ private:
 null_terminated_pointers(std::vector<std::string>& storage) {
     std::vector<char*> pointers;
     pointers.reserve(storage.size() + 1);
-    std::ranges::transform(storage, std::back_inserter(pointers),
-                           [](std::string& entry) { return entry.data(); });
+    std::ranges::transform(
+        storage, std::back_inserter(pointers),
+        // cppcheck-suppress constParameterReference ; argv is char*, so data() must be non-const
+        [](std::string& entry) { return entry.data(); });
     pointers.push_back(nullptr);
     return pointers;
 }
