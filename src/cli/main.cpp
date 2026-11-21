@@ -45,13 +45,21 @@ constexpr std::string_view kUsageLine = "usage: pwcap list [--json] | pwcap capt
 
 constexpr std::string_view kHelpText =
     "usage: pwcap list [--json]\n"
-    "       pwcap capture --app NAME\n"
+    "       pwcap capture [--app NAME] [--binary NAME] [--node NAME] [--media NAME]\n"
+    "                     [--exclude FIELD=VALUE]... [--rate HZ] [--channels N]\n"
+    "                     [--format s16le|f32le] [--no-reconnect] [--quiet]\n"
     "       pwcap --help\n"
     "\n"
     "list prints the applications that have an audio output stream: a header line, then one\n"
     "tab-separated row per stream. --json prints one JSON array instead.\n"
     "\n"
-    "capture writes the audio of application NAME to stdout as raw PCM: S16LE, 16 kHz, mono.\n"
+    "capture writes the selected application's audio to stdout as raw PCM. At least one of\n"
+    "--app, --binary, --node or --media is required; they combine with AND, and each may appear\n"
+    "once. --exclude FIELD=VALUE drops matching streams (FIELD is app, binary, node or media) and\n"
+    "may repeat. --rate and --channels default to 16000 and 1; --format defaults to s16le. The\n"
+    "supported pairs are 16000/1, 48000/2 and 48000/1. --no-reconnect ends the capture when the\n"
+    "stream ends, or fails at start when nothing matches. --quiet prints no diagnostics, but the\n"
+    "final error line is still printed. Options take VALUE as '--opt VALUE' or '--opt=VALUE'.\n"
     "Diagnostics go to stderr. Stop the capture with SIGINT or SIGTERM.\n";
 
 // Set by the stop signal handler, which may run on any thread. A lock-free atomic is the only state

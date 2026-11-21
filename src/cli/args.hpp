@@ -23,6 +23,9 @@ enum class UsageError : std::uint8_t {
     EmptyValue,
     DuplicateOption,
     NoInclude,
+    BadNumber,
+    BadFormat,
+    BadExcludeField,
 };
 
 // index is the position of the offending token in args, or args.size() when a token is missing.
