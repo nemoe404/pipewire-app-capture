@@ -114,7 +114,8 @@ The API is still a pre-release sketch. Its deviations from the first design are 
   your session.
 - **Losing the PipeWire daemon mid-capture is not tested live.** The no-daemon path is tested
   with a subprocess pointed at a missing socket, without stopping your daemon. The handler that
-  reports `Stopped` when the daemon goes away during a capture is therefore not exercised.
+  reports `Stopped` when the daemon goes away during a capture is therefore not exercised. The same
+  applies to `pwcap capture`: its exit when the daemon goes away during a capture is not tested live.
 - **libpipewire's own log lines are not redirected.** The library's diagnostics go to your
   callback, but libpipewire writes its log through its global logger, which the library does not
   change.
@@ -123,6 +124,11 @@ The API is still a pre-release sketch. Its deviations from the first design are 
   differences between the three candidate filters were 2 to 5 words out of 1150, which is not
   statistically significant. The source was 16 kHz audio upsampled to 48 kHz, not a real 48 kHz
   capture.
+- **`pwcap list` shows streams, not sound.** It lists streams whether or not they are audible, so a
+  row does not mean that sound is playing. Use it to find a name, not to check that audio flows.
+- **The examples were tested with test tones and LibriSpeech speech, not with Zoom.** The whisper
+  example was run with one model, `base.en`, on speech played through the speakers. Its transcripts
+  are not a measure of accuracy on calls.
 - **Recording a call may need consent.** Many jurisdictions require every participant's
   consent to record. You are responsible for that. This library records what you point it at
   and does nothing to notify anyone.
@@ -149,6 +155,10 @@ are not tested. Package names below are the Ubuntu ones.
 - A running PipeWire session with WirePlumber as the session manager (`pipewire`, `wireplumber`).
 - The PipeWire command-line tools `pw-cli`, `pw-dump`, `pw-link` and `pw-play` (`pipewire-bin`).
   The test tools need only the Python 3 standard library.
+- The examples need Python 3 (standard library only), coreutils `timeout` and `head`, and the
+  installed `pwcap`. `ffmpeg` (`ffmpeg`) is optional, for the WAV conversion in the shell example.
+- The whisper example also needs `whisper.cpp` built with a ggml model. Its README gives the fork
+  and commit that were tested.
 
 **For development checks (optional)**
 
@@ -267,10 +277,25 @@ only). It prints one line per second and a total at the end:
 timeout --preserve-status -s INT 10 pwcap capture --app pwcap-demo | python3 examples/python/pcm_levels.py
 ```
 
+Transcribe the stream with `whisper.cpp`. Set `WHISPER_CLI` and `WHISPER_MODEL` first (the
+whisper example README has the build). This runs until Ctrl-C:
+
+```bash
+pwcap capture --app pwcap-demo | python3 examples/whisper/transcribe.py --whisper-cli "$WHISPER_CLI" --model "$WHISPER_MODEL" --seconds 10
+```
+
+The same with a 30-second bound, which exits 0 when the capture ends:
+
+```bash
+timeout --preserve-status -s INT 30 pwcap capture --app pwcap-demo | python3 examples/whisper/transcribe.py --whisper-cli "$WHISPER_CLI" --model "$WHISPER_MODEL" --seconds 10
+```
+
 Each example has its own README with the full commands and what they show:
 
 - [Shell](examples/shell/README.md): the one-liners above, and an ffmpeg conversion to WAV.
 - [Python](examples/python/README.md): the per-second level script, its options and Ctrl-C behaviour.
+- [whisper.cpp](examples/whisper/README.md): building the fork that was tested, the transcript
+  format, the exit codes, and what was and was not tested. Nothing leaves the machine.
 
 ## Build
 
