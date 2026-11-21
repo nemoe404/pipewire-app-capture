@@ -7,6 +7,7 @@
 #include "shell/consumer.hpp"
 #include "shell/diagnostics.hpp"
 #include "shell/pw_handles.hpp"
+#include "shell/pw_init.hpp"
 #include "shell/reconciler.hpp"
 
 #include <pipewire/pipewire.h>
@@ -45,12 +46,6 @@ constexpr std::size_t kRingFrames = 96000;
                        .binary = exact(match.binary),
                        .node_name = exact(match.node_name),
                        .media_name = exact(match.media_name)};
-}
-
-// pw_init once per process; never de-initialised (it ran clean under ASan and TSan that way).
-void init_pipewire_once() {
-    static std::once_flag once;
-    std::call_once(once, [] { pw_init(nullptr, nullptr); });
 }
 
 [[nodiscard]] std::string next_node_name() {
@@ -186,7 +181,7 @@ std::expected<Capture, Error> Capture::open(Options options, Sink sink, Diagnost
         return std::unexpected{Error::InvalidOptions};
     }
 
-    init_pipewire_once();
+    shell::init_pipewire_once();
     auto impl = std::make_unique<Impl>();
     impl->diagnostic = std::move(diagnostic);
     if (const auto built = impl->build(std::move(*selection), options.reconnect); !built) {

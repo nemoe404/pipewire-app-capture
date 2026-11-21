@@ -8,12 +8,16 @@
 //                            missing socket); returns 0 on that result, 1 otherwise
 //   invalid-match            open(Options{}) must return InvalidMatch; 0 on that, 1 otherwise
 //   empty-sink               a valid include with an empty Sink must return InvalidOptions
+//   list-no-daemon           list_applications() must return NoPipeWire (the caller points
+//                            PIPEWIRE_REMOTE at a missing socket); returns 0 on that result, 1
+//                            otherwise
 //   hold <node_name> <ms>    capture the node, wait up to 3000 ms for linked(), hold until <ms>
 //                            have passed since open, then close. 0 if linked was seen, 3 if not,
 //                            1 if open failed
 //   anything else            2
 
 #include "pwcap/capture.hpp"
+#include "pwcap/list.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -95,6 +99,10 @@ int main(int argc, char** argv) {
     if (mode == "empty-sink") {
         return expect_error(pwcap::Capture::open(include_node("pwcap-probe-none"), pwcap::Sink{}),
                             pwcap::Error::InvalidOptions);
+    }
+    if (mode == "list-no-daemon") {
+        const auto listed = pwcap::list_applications();
+        return !listed && listed.error() == pwcap::Error::NoPipeWire ? kOk : kFail;
     }
     if (mode == "hold" && args.size() == 4) {
         const std::string_view text{args[3]};

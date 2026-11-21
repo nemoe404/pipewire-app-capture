@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # `import std` is not used (AGENTS.md); skip module scanning under Ninja.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
+include(GNUInstallDirs)
+
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 21)
     message(FATAL_ERROR "pwcap requires clang 21 or newer, found ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 endif()
@@ -40,8 +42,12 @@ endif()
 # Globs are deliberate: later plans add files here without editing this CMake file.
 file(GLOB PWCAP_CORE_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
 add_library(pwcap_core STATIC ${PWCAP_CORE_SOURCES})
-target_include_directories(pwcap_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
-target_link_libraries(pwcap_core PUBLIC pwcap_sanitizers PRIVATE pwcap_warnings)
+# The build-tree paths and helper interfaces are wrapped in BUILD_INTERFACE: install(EXPORT) rejects
+# source-directory include paths and targets that are not exported.
+target_include_directories(pwcap_core PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
+target_link_libraries(pwcap_core
+    PUBLIC $<BUILD_INTERFACE:pwcap_sanitizers>
+    PRIVATE $<BUILD_INTERFACE:pwcap_warnings>)
 
 # PipeWire comes in through the imported target so its headers arrive as -isystem; hand-added
 # include directories would flood the build with warnings from PipeWire's own headers.
@@ -53,12 +59,68 @@ find_package(Threads REQUIRED)
 file(GLOB PWCAP_SHELL_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/shell/*.cpp)
 if(PWCAP_SHELL_SOURCES)
     add_library(pwcap STATIC ${PWCAP_SHELL_SOURCES})
+    add_library(pwcap::pwcap ALIAS pwcap)
     target_include_directories(pwcap
-        PUBLIC ${PROJECT_SOURCE_DIR}/include
+        PUBLIC
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_compile_features(pwcap PUBLIC cxx_std_23)
+    # PRIVATE dependencies of the static library reach consumers as LINK_ONLY through the export.
     target_link_libraries(pwcap
-        PUBLIC pwcap_sanitizers Threads::Threads
-        PRIVATE pwcap_core PkgConfig::PIPEWIRE pwcap_warnings)
+        PUBLIC $<BUILD_INTERFACE:pwcap_sanitizers> Threads::Threads
+        PRIVATE pwcap_core PkgConfig::PIPEWIRE $<BUILD_INTERFACE:pwcap_warnings>)
+endif()
+
+# The CLI. Globs again: later plans add files under src/cli without editing this file. main.cpp is
+# the executable; every other .cpp in src/cli is the logic library that the tests link.
+if(TARGET pwcap)
+    file(GLOB PWCAP_CLI_LIB_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/cli/*.cpp)
+    list(FILTER PWCAP_CLI_LIB_SOURCES EXCLUDE REGEX "/main\\.cpp$")
+    if(PWCAP_CLI_LIB_SOURCES)
+        add_library(pwcap_cli_lib STATIC ${PWCAP_CLI_LIB_SOURCES})
+        target_include_directories(pwcap_cli_lib PUBLIC ${PROJECT_SOURCE_DIR}/src)
+        target_link_libraries(pwcap_cli_lib PUBLIC pwcap PRIVATE pwcap_warnings)
+    endif()
+
+    if(EXISTS ${PROJECT_SOURCE_DIR}/src/cli/main.cpp)
+        add_executable(pwcap_cli ${PROJECT_SOURCE_DIR}/src/cli/main.cpp)
+        # The library already owns the target name pwcap, so the executable is named by OUTPUT_NAME.
+        set_target_properties(pwcap_cli PROPERTIES OUTPUT_NAME pwcap)
+        target_link_libraries(pwcap_cli PRIVATE pwcap_warnings)
+        if(TARGET pwcap_cli_lib)
+            target_link_libraries(pwcap_cli PRIVATE pwcap_cli_lib)
+        endif()
+        install(TARGETS pwcap_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+endif()
+
+# Install and package. The library, its headers, the executable and the CMake package are installed;
+# test executables never are. The package finds Threads and libpipewire-0.3 on the consumer's machine.
+if(TARGET pwcap)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS pwcap pwcap_core EXPORT pwcap-targets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/pwcap
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            FILES_MATCHING PATTERN "*.hpp")
+    install(EXPORT pwcap-targets
+            NAMESPACE pwcap::
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pwcap)
+
+    configure_package_config_file(
+        ${PROJECT_SOURCE_DIR}/cmake/pwcap-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pwcap)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config-version.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion)
+    install(FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config.cmake
+            ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config-version.cmake
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pwcap)
+    install(FILES ${PROJECT_SOURCE_DIR}/LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pwcap)
 endif()
 
 if(PWCAP_BUILD_TESTS)
@@ -80,6 +142,8 @@ if(PWCAP_BUILD_TESTS)
         endforeach()
 
         set(PWCAP_PROBE_DEPENDENT_TESTS "")
+        # Test targets that run the pwcap executable (cli_* and pipewire_*); see the wiring below.
+        set(PWCAP_CLI_EXE_TESTS "")
 
         file(GLOB PWCAP_SHELL_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/shell/*_test.cpp)
         foreach(test_source IN LISTS PWCAP_SHELL_TEST_SOURCES)
@@ -110,7 +174,34 @@ if(PWCAP_BUILD_TESTS)
                 PROPERTIES LABELS pipewire TIMEOUT 120 RESOURCE_LOCK pipewire_session
                            SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
             list(APPEND PWCAP_PROBE_DEPENDENT_TESTS ${test_target})
+            list(APPEND PWCAP_CLI_EXE_TESTS ${test_target})
         endforeach()
+
+        # CLI unit tests: the pure logic library only, no PipeWire. Labelled cli.
+        if(TARGET pwcap_cli_lib)
+            file(GLOB PWCAP_CLI_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/cli/*_test.cpp)
+            foreach(test_source IN LISTS PWCAP_CLI_TEST_SOURCES)
+                get_filename_component(test_stem ${test_source} NAME_WE)
+                set(test_target cli_${test_stem})
+                add_executable(${test_target} ${test_source})
+                target_link_libraries(${test_target}
+                    PRIVATE pwcap_cli_lib pwcap pwcap_warnings GTest::gtest_main)
+                gtest_discover_tests(${test_target}
+                    DISCOVERY_MODE PRE_TEST
+                    PROPERTIES LABELS cli TIMEOUT 120)
+                list(APPEND PWCAP_CLI_EXE_TESTS ${test_target})
+            endforeach()
+        endif()
+
+        # Every cli and pipewire test gets the path of the built pwcap executable, so a test can
+        # spawn it. The executable is built first.
+        if(TARGET pwcap_cli)
+            foreach(test_target IN LISTS PWCAP_CLI_EXE_TESTS)
+                target_compile_definitions(${test_target} PRIVATE
+                    "PWCAP_CLI_EXE=\"$<TARGET_FILE:pwcap_cli>\"")
+                add_dependencies(${test_target} pwcap_cli)
+            endforeach()
+        endif()
 
         if(TARGET shell_capture_probe)
             foreach(test_target IN LISTS PWCAP_PROBE_DEPENDENT_TESTS)
