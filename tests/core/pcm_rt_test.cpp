@@ -22,15 +22,13 @@
 #include <new>
 #include <vector>
 
+// Guarded so the file also compiles where __has_feature is undefined.
 #ifndef __has_feature
 #define __has_feature(x) 0
 #endif
 
 #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
-#define PWCAP_RT_USE_SANITIZER_HOOK 1
 #include <sanitizer/allocator_interface.h>
-#else
-#define PWCAP_RT_USE_SANITIZER_HOOK 0
 #endif
 
 namespace {
@@ -39,7 +37,7 @@ std::atomic<std::uint64_t> g_allocations{0};
 
 } // namespace
 
-#if PWCAP_RT_USE_SANITIZER_HOOK
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
 
 namespace {
 
@@ -59,7 +57,7 @@ void ignore_free(const volatile void* /*ptr*/) {}
 #else
 
 // Replacement allocation functions: count, then forward to the C allocator.
-// NOLINTBEGIN(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory,misc-new-delete-overloads)
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory,misc-new-delete-overloads,misc-const-correctness)
 void* operator new(std::size_t size) {
     g_allocations.fetch_add(1, std::memory_order_relaxed);
     void* ptr = std::malloc(size != 0 ? size : 1);
@@ -69,14 +67,10 @@ void* operator new(std::size_t size) {
     return ptr;
 }
 
-void operator delete(void* ptr) noexcept {
-    std::free(ptr);
-}
+void operator delete(void* ptr) noexcept { std::free(ptr); }
 
-void operator delete(void* ptr, std::size_t /*size*/) noexcept {
-    std::free(ptr);
-}
-// NOLINTEND(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory,misc-new-delete-overloads)
+void operator delete(void* ptr, std::size_t /*size*/) noexcept { std::free(ptr); }
+// NOLINTEND(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory,misc-new-delete-overloads,misc-const-correctness)
 
 #endif
 
