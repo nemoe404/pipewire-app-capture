@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full gate, in order: clang-format -> ctest legs asan-ubsan, tsan, debug, release -> cppcheck ->
-# clang-tidy. The release leg is here because phase 5 found a failure that only the NDEBUG build shows.
+# clang-tidy. The release leg exists because a build failure that only the NDEBUG build shows once reached the branch.
 #
 # Takes no arguments. A leg name would silently narrow the sweep, so any argument is refused.
 # The first failing stage stops the run with its own exit code (see the stage scripts).

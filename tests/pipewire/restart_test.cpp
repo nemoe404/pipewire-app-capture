@@ -1,9 +1,9 @@
-// S0 item 3 through the public API: an application restarts its stream (the node is killed and a
-// new one with the same node.name appears, with a new object.serial and recycled port ids). With
-// reconnect on, the capture links the new ports by channel; with reconnect off it does not follow.
-// A pw-link monitor runs across the kill, the gap and the relink: no link from any other node
-// (microphone, monitor, distractor) may reach the capture at any moment. Opt-in, like every test
-// under tests/pipewire.
+// The restart case through the public API: an application restarts its stream (the node is killed
+// and a new one with the same node.name appears, with a new object.serial and recycled port ids).
+// With reconnect on, the capture links the new ports by channel; with reconnect off it does not
+// follow. A pw-link monitor runs across the kill, the gap and the relink: no link from any other
+// node (microphone, monitor, distractor) may reach the capture at any moment. Opt-in, like every
+// test under tests/pipewire.
 
 #include "goertzel.hpp"
 #include "pw_session.hpp"
@@ -170,7 +170,7 @@ TEST(Restart, RelinksNewPortsAfterStreamRestart) {
     ASSERT_TRUE(guard.wait_armed(3000ms)) << "the pw-link monitor printed nothing";
     const std::size_t adds_before = guard.capture_link_adds();
 
-    // Restart as s0-item3 did: SIGTERM and wait, then relaunch under the same node.name.
+    // Restart: SIGTERM and wait, then relaunch under the same node.name.
     tones.restarted_child.terminate_and_wait();
     tones.restarted_child = pwcap::test::play_tone(dir, tones.restarted, 440.0, 30.0);
     const auto relaunched = std::chrono::steady_clock::now();

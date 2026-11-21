@@ -124,8 +124,8 @@ void expect_speaker_links_kept(const Graph& graph, const std::vector<LinkPair>& 
     });
 }
 
-// The assertions of the S0 item 1 graph test, all on the pw-dump graph. 04-04 reuses this when it
-// adds level checks.
+// The assertions of the graph test, all on the pw-dump graph. The level checks build on them
+// (see goertzel.hpp).
 //   - exactly one capture node (name starts with capture_prefix): Stream/Input/Audio, autoconnect
 //     false (SAFE-03);
 //   - its links are exactly {tone FL -> capture FL, tone FR -> capture FR}, matched by channel;
@@ -184,7 +184,7 @@ void expect_exact_capture_graph(const Graph& graph, std::string_view capture_pre
 
 // The last `capacity` bytes the Sink delivered, plus a running total. The Sink runs on the
 // library's consumer thread, the test reads from its own, hence the mutex. Bounded, in memory only:
-// no captured sample is ever written anywhere (T-04-17).
+// no captured sample is ever written anywhere.
 class ByteTail {
 public:
     explicit ByteTail(std::size_t capacity) : capacity_{capacity} {}
@@ -283,7 +283,7 @@ TEST(Harness, OracleSeesToneAndSink) {
     EXPECT_GT(node->serial, 0U);
 }
 
-// The S0 item 1 graph test through the public API: Capture::open with a node_name match links
+// The graph test through the public API: Capture::open with a node_name match links
 // exactly the 440 Hz tone's FL/FR output ports to the capture's FL/FR inputs, adds no other link,
 // and leaves the tone on the speakers during capture and after teardown. pw-dump is the judge.
 TEST(CaptureGraph, LinksExactlyTheToneAndKeepsSpeakers) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Tone generator, streaming Goertzel meter and test-page writer for the S0 spikes.
+"""Tone generator, streaming Goertzel meter and test-page writer for the live tests.
 
 Standard library only. The goertzel subcommand folds samples into running sums and keeps
 nothing else, so a recorder can be piped into it without any PCM reaching disk.

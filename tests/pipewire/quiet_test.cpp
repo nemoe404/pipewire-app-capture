@@ -1,5 +1,5 @@
 // API-02 on a live session: a full capture cycle and two error paths write nothing to standard
-// output or standard error. The NoPipeWire path is proven silent by plan 04-01's subprocess probe
+// output or standard error. The NoPipeWire path is proven silent by the subprocess probe
 // (PIPEWIRE_REMOTE at a missing socket, D-05); this test covers what that probe cannot reach.
 //
 // Silence is judged at the file-descriptor level: fds 1 and 2 are redirected to temp files for the

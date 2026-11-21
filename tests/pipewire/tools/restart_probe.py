@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Restart harness for S0 item 3: what happens to a capture link when the application restarts.
+"""Restart harness: what happens to a capture link when the application restarts.
 
 Standard library only. Spawns local pw-play, pw-cat, pw-link (via stdbuf), and the sibling
 pwgraph.py / tones.py through sys.executable. Argv lists only; no shell, no network.
@@ -28,8 +28,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PWGRAPH = os.path.join(HERE, "pwgraph.py")
 TONES = os.path.join(HERE, "tones.py")
 SIGNS = ("+", "-", "*")
-REC = "pwspike-rec"
-TONE = "pwspike-tone440"
+REC = "pwprobe-rec"
+TONE = "pwprobe-tone440"
 EXIT_FALLBACK_MANUAL = 3
 
 
@@ -192,7 +192,7 @@ def fmt(v):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(description="S0 item 3 restart harness (kill and relaunch pw-play)")
+    p = argparse.ArgumentParser(description="restart harness (kill and relaunch pw-play)")
     p.add_argument("--mode", choices=("manual", "target"), required=True)
     p.add_argument("--run-dir", required=True, help="directory holding tone440.wav and tone880.wav")
     p.add_argument("--tag", required=True)
@@ -251,7 +251,7 @@ class Run:
         time.sleep(0.5)
         self.errlog = open(self.path("stderr-TAG.txt"), "w", encoding="utf-8")
         # Distractor first: it shows up in the numbers if a monitor fallback happens.
-        self.p880 = self.spawn(self.tone_argv("pwspike-tone880", "tone880.wav"),
+        self.p880 = self.spawn(self.tone_argv("pwprobe-tone880", "tone880.wav"),
                                stdout=subprocess.DEVNULL, stderr=self.errlog)
         self.p440 = self.spawn(self.tone_argv(TONE, "tone440.wav"),
                                stdout=subprocess.DEVNULL, stderr=self.errlog)
@@ -297,7 +297,7 @@ class Run:
         with open(self.path("links-TAG-" + which + ".txt"), "w", encoding="utf-8") as fh:
             fh.write(run_capture(["pw-link", "-l"]))
         with open(self.path("extract-TAG-" + which + ".jsonl"), "w", encoding="utf-8") as fh:
-            fh.write(run_capture([sys.executable, PWGRAPH, "extract", "--match", "pwspike"]))
+            fh.write(run_capture([sys.executable, PWGRAPH, "extract", "--match", "pwprobe"]))
 
     def read_before_ids(self):
         rec_in, pre_ports = {}, set()
@@ -418,7 +418,7 @@ class Run:
         if self.mon.fallback.is_set():
             return True
         if not got_ports:
-            self.errors.append("new pwspike-tone440 ports never appeared within 5 s")
+            self.errors.append("new pwprobe-tone440 ports never appeared within 5 s")
             return False
         self.mark("new-ports-seen")
         window_end = kill_t + int(a.window_s * 1e9)

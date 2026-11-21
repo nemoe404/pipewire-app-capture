@@ -354,7 +354,7 @@ void Reconciler::on_global(std::uint32_t id, const char* type, const spa_dict* p
         entry->info_seen = !bind;
         if (bind) {
             // A stream's registry props lack media.name and the binary: bind it and wait for its
-            // first info before it may be matched (T-04-03).
+            // first info before it may be matched.
             void* bound = pw_registry_bind(registry_of(registry_), id, PW_TYPE_INTERFACE_Node,
                                            PW_VERSION_NODE, 0);
             if (bound == nullptr) {
@@ -396,7 +396,7 @@ void Reconciler::on_global_remove(std::uint32_t id) {
             owned_links_.erase(owned);
         }
     }
-    // Ids are recycled (s0-item3): a link we asked for between a port's old and new life must not
+    // Ids are recycled: a link we asked for between a port's old and new life must not
     // be taken for a link between the new ports.
     if (ports_.contains(id)) {
         std::erase_if(owned_links_, [id](const auto& entry) {

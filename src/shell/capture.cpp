@@ -128,7 +128,7 @@ std::expected<void, Error> Capture::Impl::build(core::Selection selection, bool 
     // Impl is then destroyed with a loop that never ran: pw_thread_loop_stop is a no-op. Starting
     // the thread first and stopping it a moment later loses the stop request in libpipewire
     // 1.6.2 about once in a few hundred opens, and pw_thread_loop_stop then joins forever (found
-    // in phase 4 plan 06, `Options.SupportedFormatsPassValidation` timing out). Nothing else
+    // in a live run where `Options.SupportedFormatsPassValidation` timed out). Nothing else
     // touches the core until the thread runs, so no lock is needed yet.
     connection.reset(pw_context_connect(context.get(), nullptr, 0));
     if (!connection) {

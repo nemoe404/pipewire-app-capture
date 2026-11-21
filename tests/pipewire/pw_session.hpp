@@ -6,8 +6,8 @@
 // from `pw-dump` and nlohmann_json. The oracle never uses the library's own registry code, so the
 // tests do not judge the library with the library.
 //
-// Later plans extend this header (04-05 added the link guard and the shared tone helpers); the
-// signatures that earlier plans use stay as they are.
+// The link guard and the shared tone helpers were added later; the
+// signatures that existing callers use stay as they are.
 
 #include <fcntl.h>
 #include <signal.h>
@@ -560,7 +560,7 @@ template <typename Predicate>
     }
 }
 
-// ---- shared tone helpers (04-05) ----------------------------------------------------------------
+// ---- shared tone helpers ----------------------------------------------------------------
 
 inline constexpr std::string_view kStreamOutputClass = "Stream/Output/Audio";
 inline constexpr std::string_view kSinkClass = "Audio/Sink";
@@ -681,7 +681,7 @@ using PortPair = std::pair<std::uint32_t, std::uint32_t>;
     return std::nullopt;
 }
 
-// ---- continuous link guard (04-05) --------------------------------------------------------------
+// ---- continuous link guard --------------------------------------------------------------
 
 namespace detail {
 
@@ -918,7 +918,7 @@ private:
     std::jthread reader_;
 };
 
-// ---- diagnostic collector (04-05) ---------------------------------------------------------------
+// ---- diagnostic collector ---------------------------------------------------------------
 
 // Collects the messages a Capture delivers to its Diagnostic callback. The callback runs on a
 // library thread, the tests read from the test thread, so every access holds the mutex.

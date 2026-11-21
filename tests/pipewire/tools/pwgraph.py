@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Targeted PipeWire graph extracts and a continuous fallback guard for the S0 spikes.
+"""Targeted PipeWire graph extracts and a continuous fallback guard for the live tests.
 
 Standard library only. Spawns local pw-* binaries (pw-dump, pw-link via stdbuf) with argv
 lists; no shell, no network.

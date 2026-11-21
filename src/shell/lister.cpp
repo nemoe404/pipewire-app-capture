@@ -28,7 +28,7 @@ namespace pwcap {
 
 namespace {
 
-// Every call is bounded by this timer on the caller's main loop (T-05-07).
+// Every call is bounded by this timer on the caller's main loop.
 constexpr int kDeadlineSeconds = 2;
 
 class Lister;

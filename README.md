@@ -163,7 +163,7 @@ are not tested. Package names below are the Ubuntu ones.
 **For development checks (optional)**
 
 - `clang-tidy-21` and `clang-format-21`, used by the lint gates.
-- `cppcheck` is planned for the Phase 6 gate; the scripts that run it do not exist yet.
+- `cppcheck`, run by `scripts/cppcheck.sh`; `scripts/check.sh` runs the whole gate.
 
 Install on Ubuntu:
 
