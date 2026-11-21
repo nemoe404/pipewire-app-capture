@@ -105,21 +105,24 @@ struct Written {
 [[nodiscard]] Written run_silenced(const fs::path& dir, const std::function<void()>& action) {
     const fs::path out_file = dir / "stdout.bin";
     const fs::path err_file = dir / "stderr.bin";
+    // open() is variadic in C; the third argument is the creation mode.
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-vararg)
     const int out_fd = ::open(out_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
     const int err_fd = ::open(err_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
+    // NOLINTEND(cppcoreguidelines-pro-type-vararg)
     const int saved_out = ::dup(STDOUT_FILENO);
     const int saved_err = ::dup(STDERR_FILENO);
     if (out_fd < 0 || err_fd < 0 || saved_out < 0 || saved_err < 0) {
         return Written{.out = ~std::uintmax_t{0}, .err = ~std::uintmax_t{0}};
     }
 
-    std::fflush(nullptr);
-    ::dup2(out_fd, STDOUT_FILENO);
-    ::dup2(err_fd, STDERR_FILENO);
+    (void)std::fflush(nullptr);
+    (void)::dup2(out_fd, STDOUT_FILENO);
+    (void)::dup2(err_fd, STDERR_FILENO);
     action();
-    std::fflush(nullptr);
-    ::dup2(saved_out, STDOUT_FILENO);
-    ::dup2(saved_err, STDERR_FILENO);
+    (void)std::fflush(nullptr);
+    (void)::dup2(saved_out, STDOUT_FILENO);
+    (void)::dup2(saved_err, STDERR_FILENO);
 
     ::close(out_fd);
     ::close(err_fd);
@@ -163,8 +166,8 @@ TEST(Options, UnsupportedFormatIsInvalidOptions) {
     // The control window: one byte on each stream must be counted, or the check below proves
     // nothing.
     const Written control = run_silenced(dir.path(), [] {
-        std::fputc('x', stdout);
-        std::fputc('y', stderr);
+        (void)std::fputc('x', stdout);
+        (void)std::fputc('y', stderr);
     });
     ASSERT_EQ(control.out, 1U) << "the stdout redirect did not capture the control byte";
     ASSERT_EQ(control.err, 1U) << "the stderr redirect did not capture the control byte";

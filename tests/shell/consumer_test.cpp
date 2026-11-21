@@ -81,7 +81,9 @@ std::vector<float> decode_f32(std::span<const std::byte> bytes) {
     return samples;
 }
 
-// Everything the callbacks saw. Written on the consumer thread, read after it was joined.
+// Everything the callbacks saw. Written on the consumer thread, read after it was joined. A plain
+// struct with public members is the intended shape for a test fixture.
+// NOLINTBEGIN(misc-non-private-member-variables-in-classes)
 struct Harness {
     explicit Harness(std::size_t capacity = kRingFrames) : ring{capacity} {}
 
@@ -115,6 +117,7 @@ struct Harness {
     std::vector<std::thread::id> sink_threads;
     std::vector<std::pair<std::thread::id, std::string>> messages;
 };
+// NOLINTEND(misc-non-private-member-variables-in-classes)
 
 void push_all(core::SpscRing<StereoFrame>& ring, std::span<const StereoFrame> frames) {
     std::ranges::for_each(frames, [&](const StereoFrame& frame) { ring.push(frame); });
@@ -146,7 +149,7 @@ TEST(Consumer, Resamples48kStereoTo16kMonoS16) {
     ASSERT_NE(consumer, nullptr);
     {
         const std::vector<StereoFrame> frames = tone_frames(kTotalFrames, 440.0, 0.5);
-        std::jthread producer{[&] {
+        const std::jthread producer{[&] {
             std::ranges::for_each(frames | std::views::chunk(kChunk),
                                   [&](auto chunk) { push_all(harness.ring, chunk); });
         }};
@@ -187,12 +190,11 @@ TEST(Consumer, PassthroughF32KeepsEveryFrame) {
     ASSERT_EQ(harness.bytes.size(), kFrames * 8);
     const std::vector<float> decoded = decode_f32(harness.bytes);
     ASSERT_EQ(decoded.size(), kFrames * 2);
-    const bool exact = std::ranges::all_of(std::views::iota(std::size_t{0}, kFrames),
-                                           [&](std::size_t index) {
-                                               return decoded.at(2 * index) == frames.at(index).left &&
-                                                      decoded.at((2 * index) + 1) ==
-                                                          frames.at(index).right;
-                                           });
+    const bool exact =
+        std::ranges::all_of(std::views::iota(std::size_t{0}, kFrames), [&](std::size_t index) {
+            return decoded.at(2 * index) == frames.at(index).left &&
+                   decoded.at((2 * index) + 1) == frames.at(index).right;
+        });
     EXPECT_TRUE(exact);
 }
 
@@ -230,7 +232,7 @@ TEST(Consumer, CallbacksRunOnConsumerThreadOnly) {
 
     std::thread::id poster_id;
     {
-        std::jthread poster{[&] {
+        const std::jthread poster{[&] {
             poster_id = std::this_thread::get_id();
             std::ranges::for_each(std::views::iota(0, kMessages), [&](int index) {
                 harness.queue.post("second-" + std::to_string(index));
@@ -248,9 +250,8 @@ TEST(Consumer, CallbacksRunOnConsumerThreadOnly) {
     EXPECT_FALSE(harness.sink_threads.empty());
     EXPECT_TRUE(std::ranges::all_of(harness.sink_threads,
                                     [&](std::thread::id id) { return id == consumer_id; }));
-    EXPECT_TRUE(std::ranges::all_of(harness.messages, [&](const auto& message) {
-        return message.first == consumer_id;
-    }));
+    EXPECT_TRUE(std::ranges::all_of(
+        harness.messages, [&](const auto& message) { return message.first == consumer_id; }));
 
     const auto sequence_of = [&](std::string_view prefix) {
         std::vector<std::string> sequence;
@@ -296,9 +297,8 @@ TEST(Consumer, ReportsOverrun) {
     consumer.reset();
 
     constexpr std::string_view kPrefix = "Overrun: dropped ";
-    const auto found = std::ranges::find_if(harness.messages, [&](const auto& message) {
-        return message.second.starts_with(kPrefix);
-    });
+    const auto found = std::ranges::find_if(
+        harness.messages, [&](const auto& message) { return message.second.starts_with(kPrefix); });
     ASSERT_NE(found, harness.messages.end()) << "no Overrun diagnostic";
     const std::string rest = found->second.substr(kPrefix.size());
     const std::uint64_t named = std::stoull(rest);
@@ -309,8 +309,8 @@ TEST(Consumer, ReportsOverrun) {
 TEST(Consumer, SinkExceptionStopsDeliveryWithDiagnostic) {
     Harness harness;
     std::atomic<int> calls{0};
-    ConsumerConfig config = harness.config(Conversion::Passthrough48kStereo,
-                                           pwcap::SampleFormat::F32LE);
+    ConsumerConfig config =
+        harness.config(Conversion::Passthrough48kStereo, pwcap::SampleFormat::F32LE);
     config.sink = [&calls](std::span<const std::byte> /*pcm*/) {
         calls.fetch_add(1);
         throw std::runtime_error{"sink failure"};
