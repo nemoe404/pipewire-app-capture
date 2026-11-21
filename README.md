@@ -2,13 +2,13 @@
 
 Capture the audio of **one application** on Linux (a Zoom call, a Google Meet tab, a media
 player) without recording the system mix or your microphone. The audio goes out as raw PCM
-(pulse-code modulation: uncompressed samples, no header) on stdout or into a C++ callback,
-ready for a script, `whisper.cpp`, or any other consumer.
+(pulse-code modulation: uncompressed samples, no header) into a C++ callback, ready for a
+script, `whisper.cpp`, or any other consumer.
 
-> **Status: pre-alpha.** The link-routing mechanism has been checked by hand on PipeWire 1.6.2.
-> The library, CLI (command-line interface)
-> and per-app matching are not written yet. Nothing below is a finished feature until a release
-> tag says so.
+> **Status: pre-alpha.** The C++ library works on PipeWire 1.6.2: `Capture::open` links one
+> application's output into a capture stream and delivers PCM to your callback. The command-line
+> tool (`pwcap`), the examples and a release tag are not written yet. Anything marked "planned"
+> below does not exist yet.
 
 ## Why
 
@@ -17,23 +17,68 @@ ask for "only Zoom" with a one-line command, and the usual answers involve movin
 around, which silences the call for you. This library routes the one application's output
 into a capture stream and leaves the application playing on your speakers as before.
 
-```bash
-# planned interface - not implemented yet
-pwcap list
-pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe.py
+## Usage (C++ API)
+
+```cpp
+#include <pwcap/capture.hpp>
+
+#include <cstdio>
+#include <span>
+#include <string>
+#include <string_view>
+
+int main() {
+    pwcap::Options options;
+    options.include.app_name = "Zoom";  // exact, case-sensitive match on application.name
+    options.sample_rate = 16000;
+    options.channels = 1;
+    options.format = pwcap::SampleFormat::S16LE;
+
+    auto capture = pwcap::Capture::open(
+        options,
+        [](std::span<const std::byte> pcm) {
+            std::fwrite(pcm.data(), 1, pcm.size(), stdout);
+        },
+        [](std::string_view message) {
+            std::fprintf(stderr, "%.*s\n", static_cast<int>(message.size()), message.data());
+        });
+    if (!capture) {
+        std::fprintf(stderr, "%s\n", std::string(pwcap::to_string(capture.error())).c_str());
+        return 1;
+    }
+    // Keep `capture` alive while audio is wanted; destroying it stops the capture.
+    return 0;
+}
 ```
 
-## Planned features
+- `Options::include` and `Options::exclude` take `Match` values with `app_name`,
+  `binary` (`application.process.binary`), `node_name` and `media_name` (for example a browser
+  tab title). Empty fields match anything; `include` needs at least one non-empty field.
+- Supported outputs: 16000 Hz mono, 48000 Hz stereo and 48000 Hz mono, each as `S16LE` or `F32LE`.
+  The capture stream itself always runs at 48 kHz F32, FL/FR, and the library converts.
+- Errors come back as `Error` values; `to_string(Error)` gives the name. Human-readable messages
+  go to the `Diagnostic` callback. The library itself writes nothing to stdout or stderr.
+- The sink and the diagnostic callback run on a library thread. Do not destroy the `Capture`
+  from inside either of them.
 
-- Select sources by `application.name`, `application.process.binary`, `node.name`, or
-  `media.name`, with include and exclude rules.
-- Output as 16 kHz (kilohertz, samples per second) mono PCM (the format Whisper expects) or
-  the native format, on stdout or to a C++ callback.
-- Follow the application as its streams appear and disappear (a call starts, a tab closes).
-- A C++23 API (application programming interface; `std::expected` errors, RAII handles, that
-  is Resource Acquisition Is Initialization, objects that release their resources on destruction)
-  and a CLI built on the same core.
-- Examples: a Python consumer, a `whisper.cpp` pipeline, and a shell one-liner.
+The API is still a pre-release sketch. Its deviations from the first design are recorded in
+`docs/plan/00-architecture.md`, section 5.
+
+## Available now
+
+- Select one application's output by `application.name`, `application.process.binary`,
+  `node.name` or `media.name`, with exclude rules.
+- Capture as 16 kHz mono (the format `whisper.cpp` expects), or as 48 kHz stereo or mono,
+  in `S16LE` or `F32LE`.
+- Wait with `NoMatchingSource` while the application has no output stream, and link it when it
+  starts (`reconnect` is on by default).
+- Re-link after the application restarts its stream (checked with a live test; see Limits).
+
+## Planned
+
+- `pwcap list` and `pwcap capture` command-line tools, with the same core as the library.
+- Three examples: a Python consumer, a `whisper.cpp` pipeline and a shell one-liner.
+- Release `v0.1.0` with the verified PipeWire version and browser limits in the release notes.
 
 ## Limits (read before you rely on it)
 
@@ -49,18 +94,31 @@ pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe
 - **A stream restart drops manual links.** Tested on PipeWire 1.6.2 with WirePlumber 0.5.13:
   when an application's stream is killed and started again, its links to the speakers come back
   by themselves within about 10 to 17 ms, but a capture link made by hand disappears about 2 ms
-  after the kill and is not re-created within 3 s. Node ids, port ids and `object.serial` all
-  change on restart. Not tested: pause and resume, browsers, Zoom, other versions.
+  after the kill and is not re-created within 3 s. The library re-links to the new ports (about
+  60 ms in the live test). Node ids, port ids and `object.serial` all change on restart. Not
+  tested: pause and resume, browsers, Zoom, other versions.
 - **Targeting by `target.object` is only partly verified.** On the same versions, a capture
   stream targeted by serial or by name was linked to the right application while it played,
   with the same links as manual linking. After the application's stream restarted, a stream
   targeted by name was linked to the microphone within about 6 ms; with
   `node.dont-fallback=true` the stream was removed instead. `target.object` was not tested with
-  `node.autoconnect=false`, the setting the capture stream is meant to use.
+  `node.autoconnect=false`, the setting the capture stream is meant to use. The library itself
+  never falls back to the microphone or to a monitor source.
 - **Link refusal is not tested live.** If PipeWire refuses a capture link, the library reports
   `LinkFailed` through the diagnostic callback, and from `open` when reconnect is off. That path
   has no live test, because PipeWire cannot be made to refuse a link on demand without changing
   your session.
+- **Losing the PipeWire daemon mid-capture is not tested live.** The no-daemon path is tested
+  with a subprocess pointed at a missing socket, without stopping your daemon. The handler that
+  reports `Stopped` when the daemon goes away during a capture is therefore not exercised.
+- **libpipewire's own log lines are not redirected.** The library's diagnostics go to your
+  callback, but libpipewire writes its log through its global logger, which the library does not
+  change.
+- **The resampler choice rests on a small measurement.** The 48 → 16 kHz filter (`hann8`) was
+  picked by word error rate on 73 LibriSpeech utterances with `whisper.cpp` `base.en`. The
+  differences between the three candidate filters were 2 to 5 words out of 1150, which is not
+  statistically significant. The source was 16 kHz audio upsampled to 48 kHz, not a real 48 kHz
+  capture.
 - **Recording a call may need consent.** Many jurisdictions require every participant's
   consent to record. You are responsible for that. This library records what you point it at
   and does nothing to notify anyone.
@@ -69,14 +127,27 @@ pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe
 
 ## Build
 
-Requirements: Linux, `libpipewire-0.3` development files, CMake, and clang 21 with C++23.
-Other compilers are not tested.
+Requirements: Linux, `libpipewire-0.3` development files, CMake 3.28 or newer, Ninja, Conan 2,
+and clang 21 with C++23. Other compilers are not tested.
+
+Test dependencies come from Conan, so generate the toolchain first. The profile is in
+`conan/profiles/clang21`. Each build directory has its own `PWCAP_BUILD_ID`:
 
 ```bash
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+export PWCAP_BUILD_ID=dev
+conan install . --output-folder=build/$PWCAP_BUILD_ID/conan \
+    --profile:all=conan/profiles/clang21 -s "&:build_type=Debug" --build=missing
+cmake --workflow --preset debug
 ```
+
+Presets: `debug`, `asan-ubsan` (AddressSanitizer and UBSan), `tsan` (ThreadSanitizer) and
+`release` (optimised, no sanitizers). For `release`, run `conan install` with
+`-s "&:build_type=Release"` into its own `PWCAP_BUILD_ID`, because the toolchain file depends on
+the build type.
+
+Integration tests need a running PipeWire session. They are skipped unless
+`PWCAP_TEST_PIPEWIRE=1` is set and `pw-cli info 0` answers, and the skip is printed. When they
+run, they play quiet test tones through your speakers and check the graph before the levels.
 
 ## Related projects
 
