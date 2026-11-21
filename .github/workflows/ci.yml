@@ -1,0 +1,38 @@
+# CI: the static gate, then the integration job that runs the pipewire-labelled tests against a
+# real PipeWire session with a null sink. Hosted runner on purpose: this repository is public, so
+# a self-hosted runner would execute code from pull requests on a machine that owns real audio.
+name: ci
+
+on:
+  push:
+    branches: [main, release-build]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo bash scripts/ci/install-toolchain.sh 21
+      - name: Gate (format, legs, cppcheck, clang-tidy)
+        env:
+          CLANG_FORMAT: clang-format-21
+          CLANG_TIDY: clang-tidy-21
+        run: scripts/check.sh
+
+  integration:
+    runs-on: ubuntu-24.04
+    needs: gate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo bash scripts/ci/install-toolchain.sh 21
+      # Session and tests share one step: a PipeWire started in one dbus-run-session dies when that
+      # step exits, so the daemons must live for the whole test run.
+      - name: PipeWire session with a null sink, then pipewire-labelled tests (fail on any skip)
+        run: dbus-run-session -- bash -c 'scripts/ci/pipewire-session.sh && scripts/ci/run-live.sh'
