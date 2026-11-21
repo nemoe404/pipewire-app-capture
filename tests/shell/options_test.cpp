@@ -225,4 +225,23 @@ TEST(Options, SupportedFormatsPassValidation) {
     }
 }
 
+// Regression test for a hang found in plan 04-06: with no daemon, `open` started the loop thread,
+// failed to connect and stopped the thread again at once, and in libpipewire 1.6.2 the stop request
+// was lost about once in a few hundred opens, so the destructor joined forever. One open is not
+// enough to see it; the count is high enough to hit the old code in most runs. If this test ever
+// times out, `pw_thread_loop_stop` is being called too soon after `pw_thread_loop_start`.
+TEST(Options, RepeatedOpenWithoutDaemonNeverHangs) {
+    const ScratchDir dir;
+    ASSERT_FALSE(dir.path().empty());
+    const RemoteGuard remote{dir.path() / "no-such-pipewire-socket"};
+
+    constexpr std::size_t kOpens = 2000;
+    const auto no_pipewire = std::ranges::count_if(
+        std::views::iota(std::size_t{0}, kOpens), [](std::size_t /*attempt*/) {
+            const OpenOutcome outcome = try_open(16000, 1);
+            return !outcome.opened && outcome.error == pwcap::Error::NoPipeWire;
+        });
+    EXPECT_EQ(static_cast<std::size_t>(no_pipewire), kOpens);
+}
+
 } // namespace
