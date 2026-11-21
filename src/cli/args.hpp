@@ -23,6 +23,9 @@ enum class UsageError : std::uint8_t {
     EmptyValue,
     DuplicateOption,
     NoInclude,
+    BadNumber,
+    BadFormat,
+    BadExcludeField,
 };
 
 // index is the position of the offending token in args, or args.size() when a token is missing.
@@ -35,15 +38,20 @@ struct UsageFailure {
 
 struct HelpCommand {};
 
+struct ListCommand {
+    bool json{false};
+};
+
 struct CaptureCommand {
     pwcap::Options options{};
     bool quiet{false};
 };
 
-using Command = std::variant<HelpCommand, CaptureCommand>;
+using Command = std::variant<HelpCommand, ListCommand, CaptureCommand>;
 
-// args excludes argv[0]. Accepts `capture --app NAME`, `capture --app=NAME`, and --help or -h
-// alone or after `capture`. There is no default target: `capture` without --app is NoInclude.
+// args excludes argv[0]. Accepts `capture --app NAME`, `capture --app=NAME`, `list [--json]`, and
+// --help or -h alone or after a command. There is no default target: `capture` without --app is
+// NoInclude.
 [[nodiscard]] std::expected<Command, UsageFailure>
 parse_command_line(std::span<const std::string_view> args);
 
