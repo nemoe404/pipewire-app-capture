@@ -9,6 +9,8 @@ class PwcapConan(ConanFile):
     def build_requirements(self):
         # Test-only dependency. The library has no third-party runtime dependency.
         self.test_requires("gtest/1.15.0")
+        # pw-dump oracle for tests/pipewire; header-only, never linked into the library.
+        self.test_requires("nlohmann_json/3.12.0")
 
     def generate(self):
         tc = CMakeToolchain(self)

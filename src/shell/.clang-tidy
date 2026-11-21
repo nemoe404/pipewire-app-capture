@@ -1,0 +1,7 @@
+# Shell clang-tidy policy: inherits the root config and adds the shell headers to the header filter.
+# No checks are disabled by default. Where a PipeWire macro or C API makes a check unavoidable, the
+# site carries a NOLINTNEXTLINE(check) with the reason; the SUMMARY lists every suppression.
+---
+InheritParentConfig: true
+HeaderFilterRegex: '.*/src/(core|shell)/.*'
+...

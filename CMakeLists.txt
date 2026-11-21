@@ -43,10 +43,104 @@ add_library(pwcap_core STATIC ${PWCAP_CORE_SOURCES})
 target_include_directories(pwcap_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(pwcap_core PUBLIC pwcap_sanitizers PRIVATE pwcap_warnings)
 
+# PipeWire comes in through the imported target so its headers arrive as -isystem; hand-added
+# include directories would flood the build with warnings from PipeWire's own headers.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PIPEWIRE REQUIRED IMPORTED_TARGET libpipewire-0.3)
+find_package(Threads REQUIRED)
+
+# The shell library. Empty until the first src/shell/*.cpp exists; CONFIGURE_DEPENDS re-globs.
+file(GLOB PWCAP_SHELL_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/shell/*.cpp)
+if(PWCAP_SHELL_SOURCES)
+    add_library(pwcap STATIC ${PWCAP_SHELL_SOURCES})
+    target_include_directories(pwcap
+        PUBLIC ${PROJECT_SOURCE_DIR}/include
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(pwcap
+        PUBLIC pwcap_sanitizers Threads::Threads
+        PRIVATE pwcap_core PkgConfig::PIPEWIRE pwcap_warnings)
+endif()
+
 if(PWCAP_BUILD_TESTS)
     enable_testing()
     find_package(GTest CONFIG REQUIRED)
     include(GoogleTest)
+
+    # nlohmann_json is the pw-dump oracle for tests/pipewire (plan 04-02); test executables only.
+    find_package(nlohmann_json CONFIG REQUIRED)
+
+    if(TARGET pwcap)
+        # Silent helper executables for subprocess checks. No gtest: they must print nothing.
+        file(GLOB PWCAP_SHELL_PROBE_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/shell/*_probe.cpp)
+        foreach(probe_source IN LISTS PWCAP_SHELL_PROBE_SOURCES)
+            get_filename_component(probe_stem ${probe_source} NAME_WE)
+            set(probe_target shell_${probe_stem})
+            add_executable(${probe_target} ${probe_source})
+            target_link_libraries(${probe_target} PRIVATE pwcap pwcap_warnings)
+        endforeach()
+
+        set(PWCAP_PROBE_DEPENDENT_TESTS "")
+
+        file(GLOB PWCAP_SHELL_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/shell/*_test.cpp)
+        foreach(test_source IN LISTS PWCAP_SHELL_TEST_SOURCES)
+            get_filename_component(test_stem ${test_source} NAME_WE)
+            set(test_target shell_${test_stem})
+            add_executable(${test_target} ${test_source})
+            target_include_directories(${test_target} PRIVATE ${PROJECT_SOURCE_DIR}/src)
+            target_link_libraries(${test_target}
+                PRIVATE pwcap pwcap_core PkgConfig::PIPEWIRE pwcap_warnings GTest::gtest_main)
+            gtest_discover_tests(${test_target}
+                DISCOVERY_MODE PRE_TEST
+                PROPERTIES LABELS shell TIMEOUT 120)
+            list(APPEND PWCAP_PROBE_DEPENDENT_TESTS ${test_target})
+        endforeach()
+
+        # Opt-in integration tests (files arrive in plan 04-02). They need a PipeWire session and
+        # skip themselves without PWCAP_TEST_PIPEWIRE=1; ctest must report that as Skipped, not Passed.
+        # One session, so they never run in parallel with each other.
+        file(GLOB PWCAP_PIPEWIRE_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/pipewire/*_test.cpp)
+        foreach(test_source IN LISTS PWCAP_PIPEWIRE_TEST_SOURCES)
+            get_filename_component(test_stem ${test_source} NAME_WE)
+            set(test_target pipewire_${test_stem})
+            add_executable(${test_target} ${test_source})
+            target_link_libraries(${test_target}
+                PRIVATE pwcap nlohmann_json::nlohmann_json pwcap_warnings GTest::gtest_main)
+            gtest_discover_tests(${test_target}
+                DISCOVERY_MODE PRE_TEST
+                PROPERTIES LABELS pipewire TIMEOUT 120 RESOURCE_LOCK pipewire_session
+                           SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
+            list(APPEND PWCAP_PROBE_DEPENDENT_TESTS ${test_target})
+        endforeach()
+
+        if(TARGET shell_capture_probe)
+            foreach(test_target IN LISTS PWCAP_PROBE_DEPENDENT_TESTS)
+                target_compile_definitions(${test_target} PRIVATE
+                    "PWCAP_CAPTURE_PROBE=\"$<TARGET_FILE:shell_capture_probe>\"")
+                add_dependencies(${test_target} shell_capture_probe)
+            endforeach()
+        endif()
+    endif()
+
+    # Public-header gates, filled in by plan 04-06. Nothing is created here when the files are absent.
+    file(GLOB PWCAP_API_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/api/*.cpp)
+    if(PWCAP_API_SOURCES)
+        add_library(pwcap_public_header_check OBJECT ${PWCAP_API_SOURCES})
+        target_include_directories(pwcap_public_header_check PRIVATE ${PROJECT_SOURCE_DIR}/include)
+        target_link_libraries(pwcap_public_header_check PRIVATE pwcap_warnings)
+    endif()
+    if(EXISTS ${PROJECT_SOURCE_DIR}/cmake/public_headers.cmake
+       AND EXISTS ${PROJECT_SOURCE_DIR}/tests/api/fixtures/non_std_include.hpp)
+        add_test(NAME public_headers_std_only
+                 COMMAND ${CMAKE_COMMAND} -DPWCAP_ROOT=${PROJECT_SOURCE_DIR}
+                         -P ${PROJECT_SOURCE_DIR}/cmake/public_headers.cmake)
+        add_test(NAME public_headers_std_only_selftest
+                 COMMAND ${CMAKE_COMMAND}
+                         -DPWCAP_SELFTEST_FILE=${PROJECT_SOURCE_DIR}/tests/api/fixtures/non_std_include.hpp
+                         -P ${PROJECT_SOURCE_DIR}/cmake/public_headers.cmake)
+        set_tests_properties(public_headers_std_only public_headers_std_only_selftest PROPERTIES LABELS api)
+    else()
+        message(STATUS "public_headers: gate files from plan 04-06 not present")
+    endif()
 
     file(GLOB PWCAP_CORE_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/core/*_test.cpp)
     foreach(test_source IN LISTS PWCAP_CORE_TEST_SOURCES)
