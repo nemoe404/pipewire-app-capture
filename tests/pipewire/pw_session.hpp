@@ -787,10 +787,24 @@ public:
         // The child is gone, so the reader sees end of file and the jthread joins on destruction.
     }
 
-    // True once the monitor printed its first line (the replay of the existing graph), so the
-    // guard is armed. False after `timeout`.
+    // True once the monitor printed its replay of the existing graph and went quiet for 150 ms,
+    // so the guard is armed and `capture_link_adds()` already counts the links that existed. A
+    // baseline read after the first line alone would race with the rest of the replay. False
+    // after `timeout`.
     [[nodiscard]] bool wait_armed(std::chrono::milliseconds timeout) const {
-        return wait_until([this] { return lines_seen() > 0; }, timeout, 5ms);
+        constexpr auto kQuiet = 150ms;
+        std::size_t last = 0;
+        auto last_change = std::chrono::steady_clock::now();
+        return wait_until(
+            [&] {
+                const std::size_t now_seen = lines_seen();
+                if (now_seen != last) {
+                    last = now_seen;
+                    last_change = std::chrono::steady_clock::now();
+                }
+                return last > 0 && std::chrono::steady_clock::now() - last_change >= kQuiet;
+            },
+            timeout, 10ms);
     }
 
     [[nodiscard]] std::size_t lines_seen() const {
