@@ -301,8 +301,11 @@ bool Lister::all_infos_seen() const {
 
 void Lister::quit() const { static_cast<void>(pw_main_loop_quit(loop_.get())); }
 
-// The pure conversion, in place for this slice. The next commit moves it to shell::to_app_streams.
-std::vector<AppStream> to_streams(const std::vector<core::NodeInfo>& nodes) {
+} // namespace
+
+namespace shell {
+
+std::vector<AppStream> to_app_streams(std::vector<core::NodeInfo> nodes) {
     auto streams = nodes | std::views::filter([](const core::NodeInfo& node) {
                        return node.media_class == core::kStreamOutputAudio;
                    }) |
@@ -321,16 +324,6 @@ std::vector<AppStream> to_streams(const std::vector<core::NodeInfo>& nodes) {
     return streams;
 }
 
-} // namespace
-
-namespace shell {
-
-// RED stub for the TDD step: the conversion is not implemented yet.
-std::vector<AppStream> to_app_streams(std::vector<core::NodeInfo> nodes) {
-    static_cast<void>(nodes);
-    return {};
-}
-
 } // namespace shell
 
 // ---------------------------------------------------------------------------------------------
@@ -341,7 +334,7 @@ std::expected<std::vector<AppStream>, Error> list_applications() {
     if (auto ran = lister->run(); !ran) {
         return std::unexpected{ran.error()};
     }
-    return to_streams(lister->parsed_nodes());
+    return shell::to_app_streams(lister->parsed_nodes());
 }
 
 } // namespace pwcap
