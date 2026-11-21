@@ -1,6 +1,7 @@
 #include "pwcap/list.hpp"
 
 #include "core/graph.hpp"
+#include "shell/lister.hpp"
 #include "shell/pw_handles.hpp"
 #include "shell/pw_init.hpp"
 #include "shell/reconciler.hpp"
@@ -321,6 +322,16 @@ std::vector<AppStream> to_streams(const std::vector<core::NodeInfo>& nodes) {
 }
 
 } // namespace
+
+namespace shell {
+
+// RED stub for the TDD step: the conversion is not implemented yet.
+std::vector<AppStream> to_app_streams(std::vector<core::NodeInfo> nodes) {
+    static_cast<void>(nodes);
+    return {};
+}
+
+} // namespace shell
 
 // ---------------------------------------------------------------------------------------------
 

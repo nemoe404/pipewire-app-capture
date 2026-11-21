@@ -238,6 +238,21 @@ TEST(OpenErrors, NoDaemonSubprocessIsNoPipeWireAndSilent) {
     EXPECT_LT(run.elapsed, 5s);
 }
 
+TEST(OpenErrors, ListNoDaemonSubprocessIsNoPipeWireAndSilent) {
+    const TempDir dir;
+    ASSERT_FALSE(dir.path().empty());
+    // A path that cannot exist: a fresh directory with nothing in it. The host daemon is untouched.
+    const std::string missing_socket = (dir.path() / "no-such-socket").string();
+    ASSERT_FALSE(fs::exists(missing_socket));
+    const ProbeRun run = run_probe({"list-no-daemon"}, missing_socket);
+    ASSERT_TRUE(run.spawned);
+    EXPECT_FALSE(run.timed_out);
+    EXPECT_EQ(run.exit_status, 0) << "list_applications() did not return Error::NoPipeWire";
+    EXPECT_EQ(run.out_bytes, 0U);
+    EXPECT_EQ(run.err_bytes, 0U);
+    EXPECT_LT(run.elapsed, 5s);
+}
+
 TEST(OpenErrors, InvalidMatchSubprocessIsSilent) {
     const ProbeRun run = run_probe({"invalid-match"}, std::nullopt);
     ASSERT_TRUE(run.spawned);
