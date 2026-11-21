@@ -112,9 +112,8 @@ struct Cycle {
     std::optional<pwcap::Error> invalid_options;
 };
 
-[[nodiscard]] std::optional<pwcap::Error> open_error(pwcap::Options options) {
-    auto result =
-        pwcap::Capture::open(std::move(options), [](std::span<const std::byte> /*pcm*/) {});
+[[nodiscard]] std::optional<pwcap::Error> open_error(const pwcap::Options& options) {
+    auto result = pwcap::Capture::open(options, [](std::span<const std::byte> /*pcm*/) {});
     if (result) {
         return std::nullopt;
     }
