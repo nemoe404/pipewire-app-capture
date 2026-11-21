@@ -359,7 +359,7 @@ tone played by `pw-play`, with the app name changed from `"Zoom"` to `pw-play`. 
 
 ## Built on
 
-This library is the audio-capture layer of [сonsigliere](https://consigliere.observer/), a visible desktop assistant for
+This library is the audio-capture layer of [consigliere](https://consigliere.observer/), a visible desktop assistant for
 technical interviews. Need to feed Zoom audio into Whisper in real-time? That's exactly what
 consigliere does automatically.
 
