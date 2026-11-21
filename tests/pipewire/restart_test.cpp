@@ -5,6 +5,7 @@
 // (microphone, monitor, distractor) may reach the capture at any moment. Opt-in, like every test
 // under tests/pipewire.
 
+#include "goertzel.hpp"
 #include "pw_session.hpp"
 
 #include "pwcap/capture.hpp"
@@ -17,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -40,6 +42,42 @@ using pwcap::test::TempDir;
         bytes.fetch_add(pcm.size(), std::memory_order_relaxed);
     };
 }
+
+// The last `capacity` bytes the capture delivered, and a running total. Memory only: no PCM is
+// written anywhere.
+class ByteTail {
+public:
+    explicit ByteTail(std::size_t capacity) : capacity_{capacity} {}
+
+    void append(std::span<const std::byte> bytes) {
+        const std::scoped_lock lock{mutex_};
+        tail_.insert(tail_.end(), bytes.begin(), bytes.end());
+        if (tail_.size() > capacity_) {
+            tail_.erase(tail_.begin(),
+                        tail_.begin() + static_cast<std::ptrdiff_t>(tail_.size() - capacity_));
+        }
+        total_ += bytes.size();
+    }
+
+    [[nodiscard]] std::uint64_t total() const {
+        const std::scoped_lock lock{mutex_};
+        return total_;
+    }
+
+    // At most the last `count` bytes.
+    [[nodiscard]] std::vector<std::byte> last(std::size_t count) const {
+        const std::scoped_lock lock{mutex_};
+        const std::size_t take = std::min(count, tail_.size());
+        return {tail_.end() - static_cast<std::ptrdiff_t>(take), tail_.end()};
+    }
+
+private:
+    std::size_t capacity_;
+    mutable std::mutex mutex_;
+    // NOLINTNEXTLINE(readability-redundant-member-init)
+    std::vector<std::byte> tail_{};
+    std::uint64_t total_{0};
+};
 
 [[nodiscard]] pwcap::Diagnostic collecting(DiagnosticLog& log) {
     return [&log](std::string_view message) { log.add(message); };
@@ -107,10 +145,11 @@ TEST(Restart, RelinksNewPortsAfterStreamRestart) {
     ASSERT_TRUE(tones.on_speakers) << "the tones were never linked to a sink";
 
     DiagnosticLog log;
-    std::atomic<std::uint64_t> bytes{0};
+    // 4 s of 16 kHz S16 mono.
+    ByteTail tail{128000};
     auto opened = pwcap::Capture::open(
         pwcap::Options{.include = {.node_name = tones.restarted}, .reconnect = true},
-        counting_sink(bytes), collecting(log));
+        [&tail](std::span<const std::byte> pcm) { tail.append(pcm); }, collecting(log));
     ASSERT_TRUE(opened.has_value())
         << "Capture::open failed: " << (opened ? "" : pwcap::to_string(opened.error()));
 
@@ -173,6 +212,23 @@ TEST(Restart, RelinksNewPortsAfterStreamRestart) {
         EXPECT_TRUE(pwcap::test::graph_has_link(graph, pair))
             << "the distractor lost a speaker link: " << pair.first << " -> " << pair.second;
     });
+
+    // Audio half of ROADMAP criterion 2, judged only after the graph assertions above. One more
+    // second of audio must arrive after the relink, and that second must be the 440 Hz tone and not
+    // the 880 Hz distractor. The tone is 0.1 amplitude, about 2317 RMS in int16 units.
+    const std::uint64_t bytes_at_relink = tail.total();
+    ASSERT_TRUE(
+        pwcap::test::wait_until([&] { return tail.total() >= bytes_at_relink + 32000; }, 4000ms))
+        << "less than 1 s of audio arrived after the relink; got " << tail.total() - bytes_at_relink
+        << " bytes";
+    const std::vector<float> samples = pwcap::test::decode_s16le(tail.last(32000));
+    ASSERT_EQ(samples.size(), 16000U);
+    const double at_tone = pwcap::test::goertzel_power(samples, 440.0, 16000.0);
+    const double at_distractor = pwcap::test::goertzel_power(samples, 880.0, 16000.0);
+    EXPECT_GT(at_tone, 0.0);
+    EXPECT_GE(at_tone, 1000.0 * at_distractor)
+        << "P(440)=" << at_tone << " P(880)=" << at_distractor;
+    EXPECT_GE(pwcap::test::rms(samples), 500.0) << "the audio did not resume after the relink";
 }
 
 // Reconnect off: the restarted stream is a different stream (new object.serial). The capture does
