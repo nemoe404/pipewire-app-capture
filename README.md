@@ -260,10 +260,17 @@ WAV, with ffmpeg (optional):
 ffmpeg -loglevel error -y -f s16le -ar 16000 -ac 1 -i ten-seconds.raw ten-seconds.wav
 ```
 
-Each example has its own
-README with the full commands and what they show:
+Print per-second levels and frequency of the same stream with the Python example (standard library
+only). It prints one line per second and a total at the end:
+
+```bash
+timeout --preserve-status -s INT 10 pwcap capture --app pwcap-demo | python3 examples/python/pcm_levels.py
+```
+
+Each example has its own README with the full commands and what they show:
 
 - [Shell](examples/shell/README.md): the one-liners above, and an ffmpeg conversion to WAV.
+- [Python](examples/python/README.md): the per-second level script, its options and Ctrl-C behaviour.
 
 ## Build
 
