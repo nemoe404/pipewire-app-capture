@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Full gate, in order: clang-format -> ctest legs asan-ubsan, tsan, debug -> cppcheck -> clang-tidy.
+# Full gate, in order: clang-format -> ctest legs asan-ubsan, tsan, debug, release -> cppcheck ->
+# clang-tidy. The release leg is here because phase 5 found a failure that only the NDEBUG build shows.
 #
 # Takes no arguments. A leg name would silently narrow the sweep, so any argument is refused.
 # The first failing stage stops the run with its own exit code (see the stage scripts).
@@ -41,15 +42,22 @@ if ((${#unformatted[@]} > 0)); then
 fi
 echo "FORMAT-OK files=${#sources[@]}"
 
-# 2. Compile legs. One Debug conan install serves all of them.
-stage "dependencies"
-conan install . --output-folder="$root/build/$id/conan" --profile:all=conan/profiles/clang21 \
-    -s "&:build_type=Debug" --build=missing >"$logs/conan.log" 2>&1 || {
-    echo "check: conan install failed; see $logs/conan.log" >&2
-    exit 1
+# 2. Compile legs. The conan output folder is shared by every preset of an id, so the toolchain
+# is installed for the build type of the leg that follows: Debug for three legs, then Release.
+install_deps() {
+    stage "dependencies ($1)"
+    conan install . --output-folder="$root/build/$id/conan" --profile:all=conan/profiles/clang21 \
+        -s "&:build_type=$1" --build=missing >"$logs/conan-$1.log" 2>&1 || {
+        echo "check: conan install ($1) failed; see $logs/conan-$1.log" >&2
+        exit 1
+    }
 }
 
-for leg in asan-ubsan tsan debug; do
+install_deps Debug
+for leg in asan-ubsan tsan debug release; do
+    if [[ $leg == release ]]; then
+        install_deps Release
+    fi
     stage "leg $leg"
     cmake --preset "$leg" >"$logs/$leg.configure.log" 2>&1 || {
         echo "check: configure failed for $leg; see $logs/$leg.configure.log" >&2
@@ -79,4 +87,4 @@ scripts/cppcheck.sh
 stage "clang-tidy"
 scripts/tidy.sh --all
 
-printf '\nCHECK-OK stages=format,legs(asan-ubsan,tsan,debug),cppcheck,clang-tidy\n'
+printf '\nCHECK-OK stages=format,legs(asan-ubsan,tsan,debug,release),cppcheck,clang-tidy\n'
