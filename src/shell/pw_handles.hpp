@@ -22,6 +22,9 @@ namespace pwcap::shell {
 struct ThreadLoopDeleter {
     void operator()(pw_thread_loop* loop) const noexcept { pw_thread_loop_destroy(loop); }
 };
+struct MainLoopDeleter {
+    void operator()(pw_main_loop* loop) const noexcept { pw_main_loop_destroy(loop); }
+};
 struct ContextDeleter {
     void operator()(pw_context* context) const noexcept { pw_context_destroy(context); }
 };
@@ -39,6 +42,7 @@ struct PropertiesDeleter {
 };
 
 using ThreadLoopPtr = std::unique_ptr<pw_thread_loop, ThreadLoopDeleter>;
+using MainLoopPtr = std::unique_ptr<pw_main_loop, MainLoopDeleter>;
 using ContextPtr = std::unique_ptr<pw_context, ContextDeleter>;
 using CorePtr = std::unique_ptr<pw_core, CoreDeleter>;
 using StreamPtr = std::unique_ptr<pw_stream, StreamDeleter>;
@@ -104,6 +108,7 @@ inline constexpr bool kIsMoveOnlyHandle =
     !std::is_copy_constructible_v<Handle> && std::is_nothrow_move_constructible_v<Handle>;
 
 static_assert(kIsMoveOnlyHandle<ThreadLoopPtr>);
+static_assert(kIsMoveOnlyHandle<MainLoopPtr>);
 static_assert(kIsMoveOnlyHandle<ContextPtr>);
 static_assert(kIsMoveOnlyHandle<CorePtr>);
 static_assert(kIsMoveOnlyHandle<StreamPtr>);

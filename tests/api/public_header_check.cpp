@@ -5,14 +5,18 @@
 // is no main and no test framework: building the object file is the check.
 
 #include <pwcap/capture.hpp>
+#include <pwcap/list.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -45,5 +49,15 @@ static_assert(noexcept(pwcap::to_string(Error::NoPipeWire)), "to_string is noexc
 static_assert(std::to_underlying(Error::InvalidOptions) == std::to_underlying(Error::Stopped) + 1,
               "InvalidOptions is the last enumerator, directly after Stopped");
 static_assert(std::to_underlying(Error::NoPipeWire) == 0, "the first enumerator keeps value 0");
+
+// list.hpp: the listing signature and the AppStream fields are fixed by D-09.
+static_assert(std::is_same_v<decltype(pwcap::list_applications()),
+                             std::expected<std::vector<pwcap::AppStream>, pwcap::Error>>,
+              "list_applications returns the expected list of AppStream or an Error");
+static_assert(std::is_aggregate_v<pwcap::AppStream>, "AppStream is an aggregate");
+static_assert(std::is_same_v<decltype(pwcap::AppStream::serial), std::uint64_t>,
+              "AppStream::serial is the 64-bit object.serial");
+static_assert(std::is_same_v<decltype(pwcap::AppStream::pid), std::optional<std::int32_t>>,
+              "AppStream::pid is optional, because some streams carry no process id");
 
 } // namespace
