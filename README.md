@@ -57,6 +57,10 @@ pwcap capture --app zoom --rate 16000 --channels 1 --format s16le | ./transcribe
   targeted by name was linked to the microphone within about 6 ms; with
   `node.dont-fallback=true` the stream was removed instead. `target.object` was not tested with
   `node.autoconnect=false`, the setting the capture stream is meant to use.
+- **Link refusal is not tested live.** If PipeWire refuses a capture link, the library reports
+  `LinkFailed` through the diagnostic callback, and from `open` when reconnect is off. That path
+  has no live test, because PipeWire cannot be made to refuse a link on demand without changing
+  your session.
 - **Recording a call may need consent.** Many jurisdictions require every participant's
   consent to record. You are responsible for that. This library records what you point it at
   and does nothing to notify anyone.
