@@ -42,8 +42,12 @@ endif()
 # Globs are deliberate: later plans add files here without editing this CMake file.
 file(GLOB PWCAP_CORE_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
 add_library(pwcap_core STATIC ${PWCAP_CORE_SOURCES})
-target_include_directories(pwcap_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
-target_link_libraries(pwcap_core PUBLIC pwcap_sanitizers PRIVATE pwcap_warnings)
+# The build-tree paths and helper interfaces are wrapped in BUILD_INTERFACE: install(EXPORT) rejects
+# source-directory include paths and targets that are not exported.
+target_include_directories(pwcap_core PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
+target_link_libraries(pwcap_core
+    PUBLIC $<BUILD_INTERFACE:pwcap_sanitizers>
+    PRIVATE $<BUILD_INTERFACE:pwcap_warnings>)
 
 # PipeWire comes in through the imported target so its headers arrive as -isystem; hand-added
 # include directories would flood the build with warnings from PipeWire's own headers.
@@ -55,12 +59,17 @@ find_package(Threads REQUIRED)
 file(GLOB PWCAP_SHELL_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/shell/*.cpp)
 if(PWCAP_SHELL_SOURCES)
     add_library(pwcap STATIC ${PWCAP_SHELL_SOURCES})
+    add_library(pwcap::pwcap ALIAS pwcap)
     target_include_directories(pwcap
-        PUBLIC ${PROJECT_SOURCE_DIR}/include
+        PUBLIC
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_compile_features(pwcap PUBLIC cxx_std_23)
+    # PRIVATE dependencies of the static library reach consumers as LINK_ONLY through the export.
     target_link_libraries(pwcap
-        PUBLIC pwcap_sanitizers Threads::Threads
-        PRIVATE pwcap_core PkgConfig::PIPEWIRE pwcap_warnings)
+        PUBLIC $<BUILD_INTERFACE:pwcap_sanitizers> Threads::Threads
+        PRIVATE pwcap_core PkgConfig::PIPEWIRE $<BUILD_INTERFACE:pwcap_warnings>)
 endif()
 
 # The CLI. Globs again: later plans add files under src/cli without editing this file. main.cpp is
@@ -84,6 +93,34 @@ if(TARGET pwcap)
         endif()
         install(TARGETS pwcap_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     endif()
+endif()
+
+# Install and package. The library, its headers, the executable and the CMake package are installed;
+# test executables never are. The package finds Threads and libpipewire-0.3 on the consumer's machine.
+if(TARGET pwcap)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS pwcap pwcap_core EXPORT pwcap-targets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/pwcap
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            FILES_MATCHING PATTERN "*.hpp")
+    install(EXPORT pwcap-targets
+            NAMESPACE pwcap::
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pwcap)
+
+    configure_package_config_file(
+        ${PROJECT_SOURCE_DIR}/cmake/pwcap-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pwcap)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config-version.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion)
+    install(FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config.cmake
+            ${CMAKE_CURRENT_BINARY_DIR}/pwcap-config-version.cmake
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pwcap)
+    install(FILES ${PROJECT_SOURCE_DIR}/LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pwcap)
 endif()
 
 if(PWCAP_BUILD_TESTS)

@@ -1,0 +1,18 @@
+# pwcap package configuration. Installed next to pwcap-targets.cmake; configured by CMake.
+#
+# Dependencies resolve on the consumer's machine: Threads through CMake, libpipewire-0.3 through
+# pkg-config. Nothing here refers to the build tree or to a source path.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+find_dependency(PkgConfig)
+
+if(NOT TARGET PkgConfig::PIPEWIRE)
+    pkg_check_modules(PIPEWIRE REQUIRED IMPORTED_TARGET libpipewire-0.3)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/pwcap-targets.cmake")
+
+check_required_components(pwcap)
