@@ -79,8 +79,8 @@ int main(int argc, char** argv) {
     }
     const std::string_view mode{args[1]};
     if (mode == "control") {
-        std::fputc('o', stdout);
-        std::fputc('e', stderr);
+        static_cast<void>(std::fputc('o', stdout));
+        static_cast<void>(std::fputc('e', stderr));
         return kOk;
     }
     if (mode == "no-daemon") {

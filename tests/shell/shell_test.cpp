@@ -15,19 +15,22 @@
 #include <spa/utils/dict.h>
 
 #include <fcntl.h>
-#include <signal.h>
 #include <spawn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <initializer_list>
+#include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -75,6 +78,16 @@ struct ProbeRun {
     std::chrono::milliseconds elapsed{0};
 };
 
+// The argv/envp shape posix_spawn wants: pointers into `storage`, then a null.
+[[nodiscard]] std::vector<char*> null_terminated_pointers(std::vector<std::string>& storage) {
+    std::vector<char*> pointers;
+    pointers.reserve(storage.size() + 1);
+    std::ranges::transform(storage, std::back_inserter(pointers),
+                           [](std::string& entry) { return entry.data(); });
+    pointers.push_back(nullptr);
+    return pointers;
+}
+
 [[nodiscard]] std::uintmax_t size_of(const fs::path& file) {
     std::error_code error;
     const auto size = fs::file_size(file, error);
@@ -93,7 +106,7 @@ struct ProbeRun {
     std::vector<std::string> env_storage;
     // The environment is a null-terminated array of C strings; reading it needs pointer steps.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    for (char** entry = environ; *entry != nullptr; ++entry) {
+    for (char* const* entry = environ; *entry != nullptr; ++entry) {
         const std::string_view text{*entry};
         if (!pipewire_remote || !text.starts_with("PIPEWIRE_REMOTE=")) {
             env_storage.emplace_back(text);
@@ -102,19 +115,11 @@ struct ProbeRun {
     if (pipewire_remote) {
         env_storage.push_back("PIPEWIRE_REMOTE=" + *pipewire_remote);
     }
-    std::vector<char*> envp;
-    for (std::string& entry : env_storage) {
-        envp.push_back(entry.data());
-    }
-    envp.push_back(nullptr);
+    std::vector<char*> envp = null_terminated_pointers(env_storage);
 
     std::vector<std::string> argv_storage{PWCAP_CAPTURE_PROBE};
     argv_storage.insert(argv_storage.end(), args.begin(), args.end());
-    std::vector<char*> argv;
-    for (std::string& entry : argv_storage) {
-        argv.push_back(entry.data());
-    }
-    argv.push_back(nullptr);
+    std::vector<char*> argv = null_terminated_pointers(argv_storage);
 
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
@@ -158,18 +163,15 @@ struct ProbeRun {
 
 // ---- spa_dict helper -------------------------------------------------------------------------
 
-struct Prop {
-    const char* key;
-    const char* value;
-};
+using Prop = std::pair<const char*, const char*>;
 
 // Owns the items a spa_dict points at. Neither copyable nor movable: the dict holds an address.
 class Props {
 public:
     Props(std::initializer_list<Prop> props) {
-        for (const Prop& prop : props) {
-            items_.push_back(spa_dict_item{.key = prop.key, .value = prop.value});
-        }
+        std::ranges::transform(props, std::back_inserter(items_), [](const Prop& prop) {
+            return spa_dict_item{.key = prop.first, .value = prop.second};
+        });
         dict_ = spa_dict{.flags = 0,
                          .n_items = static_cast<std::uint32_t>(items_.size()),
                          .items = items_.data()};
@@ -185,6 +187,14 @@ private:
     std::vector<spa_dict_item> items_;
     spa_dict dict_{};
 };
+
+// The value of `value`, or a test-failing exception. Keeps the optional checks in one place.
+template <typename T> [[nodiscard]] const T& require(const std::optional<T>& value) {
+    if (!value.has_value()) {
+        throw std::logic_error("expected the optional to hold a value");
+    }
+    return *value;
+}
 
 [[nodiscard]] pwcap::Sink discarding_sink() {
     return [](std::span<const std::byte> /*pcm*/) {};
@@ -339,17 +349,17 @@ TEST(RegistryProps, NodeFromBoundProps) {
                       {"application.process.id", "528076"},
                       {"media.class", "Stream/Output/Audio"},
                       {"media.name", "pwspike-tab-440"}};
-    const auto node = pwcap::shell::node_from_props(77, props.dict());
-    ASSERT_TRUE(node.has_value());
-    EXPECT_EQ(node->id, 77U);
-    EXPECT_EQ(node->serial, 2201U);
-    EXPECT_EQ(node->node_name, "Firefox");
-    EXPECT_EQ(node->app_name, "Firefox");
-    EXPECT_EQ(node->binary, "firefox");
-    EXPECT_EQ(node->media_class, "Stream/Output/Audio");
-    EXPECT_EQ(node->media_name, "pwspike-tab-440");
-    ASSERT_TRUE(node->pid.has_value());
-    EXPECT_EQ(*node->pid, 528076);
+    const auto node_opt = pwcap::shell::node_from_props(77, props.dict());
+    const auto& node = require(node_opt);
+    EXPECT_EQ(node.id, 77U);
+    EXPECT_EQ(node.serial, 2201U);
+    EXPECT_EQ(node.node_name, "Firefox");
+    EXPECT_EQ(node.app_name, "Firefox");
+    EXPECT_EQ(node.binary, "firefox");
+    EXPECT_EQ(node.media_class, "Stream/Output/Audio");
+    EXPECT_EQ(node.media_name, "pwspike-tab-440");
+    ASSERT_TRUE(node.pid.has_value());
+    EXPECT_EQ(require(node.pid), 528076);
 }
 
 TEST(RegistryProps, NodeRejectsBadSerial) {
@@ -362,26 +372,26 @@ TEST(RegistryProps, NodeRejectsBadSerial) {
     EXPECT_FALSE(pwcap::shell::node_from_props(1, missing.dict()).has_value());
     // The largest valid serial is accepted.
     const Props largest{{"object.serial", "18446744073709551615"}};
-    const auto node = pwcap::shell::node_from_props(1, largest.dict());
-    ASSERT_TRUE(node.has_value());
-    EXPECT_EQ(node->serial, UINT64_MAX);
+    const auto node_opt = pwcap::shell::node_from_props(1, largest.dict());
+    const auto& node = require(node_opt);
+    EXPECT_EQ(node.serial, UINT64_MAX);
 }
 
 TEST(RegistryProps, NodePidIsOptional) {
     const Props absent{{"object.serial", "5"}};
-    const auto without = pwcap::shell::node_from_props(1, absent.dict());
-    ASSERT_TRUE(without.has_value());
-    EXPECT_FALSE(without->pid.has_value());
+    const auto without_opt = pwcap::shell::node_from_props(1, absent.dict());
+    const auto& without = require(without_opt);
+    EXPECT_FALSE(without.pid.has_value());
 
     const Props garbage{{"object.serial", "5"}, {"application.process.id", "abc"}};
-    const auto with_garbage = pwcap::shell::node_from_props(1, garbage.dict());
-    ASSERT_TRUE(with_garbage.has_value());
-    EXPECT_FALSE(with_garbage->pid.has_value());
+    const auto with_garbage_opt = pwcap::shell::node_from_props(1, garbage.dict());
+    const auto& with_garbage = require(with_garbage_opt);
+    EXPECT_FALSE(with_garbage.pid.has_value());
 
     const Props overflow{{"object.serial", "5"}, {"application.process.id", "99999999999"}};
-    const auto with_overflow = pwcap::shell::node_from_props(1, overflow.dict());
-    ASSERT_TRUE(with_overflow.has_value());
-    EXPECT_FALSE(with_overflow->pid.has_value());
+    const auto with_overflow_opt = pwcap::shell::node_from_props(1, overflow.dict());
+    const auto& with_overflow = require(with_overflow_opt);
+    EXPECT_FALSE(with_overflow.pid.has_value());
 }
 
 TEST(RegistryProps, PortParsesDirectionChannelMonitor) {
@@ -389,20 +399,20 @@ TEST(RegistryProps, PortParsesDirectionChannelMonitor) {
                         {"port.direction", "out"},
                         {"audio.channel", "FR"},
                         {"port.monitor", "true"}};
-    const auto out = pwcap::shell::port_from_props(45, monitor.dict());
-    ASSERT_TRUE(out.has_value());
-    EXPECT_EQ(out->node_id, 59U);
-    EXPECT_EQ(out->port_id, 45U);
-    EXPECT_EQ(out->direction, pwcap::core::Direction::Output);
-    EXPECT_EQ(out->channel, "FR");
-    EXPECT_TRUE(out->monitor);
+    const auto out_opt = pwcap::shell::port_from_props(45, monitor.dict());
+    const auto& out = require(out_opt);
+    EXPECT_EQ(out.node_id, 59U);
+    EXPECT_EQ(out.port_id, 45U);
+    EXPECT_EQ(out.direction, pwcap::core::Direction::Output);
+    EXPECT_EQ(out.channel, "FR");
+    EXPECT_TRUE(out.monitor);
 
     const Props plain{{"node.id", "60"}, {"port.direction", "in"}};
-    const auto in = pwcap::shell::port_from_props(46, plain.dict());
-    ASSERT_TRUE(in.has_value());
-    EXPECT_EQ(in->direction, pwcap::core::Direction::Input);
-    EXPECT_TRUE(in->channel.empty());
-    EXPECT_FALSE(in->monitor);
+    const auto in_opt = pwcap::shell::port_from_props(46, plain.dict());
+    const auto& in = require(in_opt);
+    EXPECT_EQ(in.direction, pwcap::core::Direction::Input);
+    EXPECT_TRUE(in.channel.empty());
+    EXPECT_FALSE(in.monitor);
 }
 
 TEST(RegistryProps, PortRejectsBadNodeIdOrDirection) {
@@ -420,10 +430,10 @@ TEST(RegistryProps, PortRejectsBadNodeIdOrDirection) {
 
 TEST(RegistryProps, LinkRejectsMissingOrBadPort) {
     const Props good{{"link.output.port", "102"}, {"link.input.port", "47"}};
-    const auto link = pwcap::shell::link_from_props(good.dict());
-    ASSERT_TRUE(link.has_value());
-    EXPECT_EQ(link->output_port_id, 102U);
-    EXPECT_EQ(link->input_port_id, 47U);
+    const auto link_opt = pwcap::shell::link_from_props(good.dict());
+    const auto& link = require(link_opt);
+    EXPECT_EQ(link.output_port_id, 102U);
+    EXPECT_EQ(link.input_port_id, 47U);
 
     const Props no_input{{"link.output.port", "102"}};
     EXPECT_FALSE(pwcap::shell::link_from_props(no_input.dict()).has_value());

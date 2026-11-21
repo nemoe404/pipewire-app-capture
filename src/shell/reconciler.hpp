@@ -42,9 +42,9 @@ namespace pwcap::shell {
 
 struct ReconcilerConfig {
     core::Selection selection;
-    bool reconnect;
+    bool reconnect{true};
     // Non-owning; outlives the reconciler.
-    DiagnosticQueue* diagnostics;
+    DiagnosticQueue* diagnostics{nullptr};
 };
 
 // The capture stream is F32 FL/FR (D-04), so two input ports are expected on its node.
