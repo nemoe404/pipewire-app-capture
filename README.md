@@ -218,9 +218,9 @@ The command-line tool and the scripting examples are planned, not written. See "
 
 ## Built on
 
-This library is the audio-capture layer of **Consigliere**, a visible desktop assistant for
+This library is the audio-capture layer of [сonsigliere](https://consigliere.observer/), a visible desktop assistant for
 technical interviews. Need to feed Zoom audio into Whisper in real-time? That's exactly what
-Consigliere does automatically. Try the full desktop assistant here [Link].
+consigliere does automatically.
 
 ## License
 
