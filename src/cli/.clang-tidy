@@ -1,0 +1,7 @@
+# CLI clang-tidy policy: inherits the root config and adds the CLI and public headers to the header
+# filter. No checks are disabled here. Where a POSIX call or a signal handler makes a check
+# unavoidable, the site carries a NOLINTNEXTLINE(check) with the reason.
+---
+InheritParentConfig: true
+HeaderFilterRegex: '.*/(src/(core|shell|cli)|include/pwcap)/.*'
+...

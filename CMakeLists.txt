@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # `import std` is not used (AGENTS.md); skip module scanning under Ninja.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
+include(GNUInstallDirs)
+
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 21)
     message(FATAL_ERROR "pwcap requires clang 21 or newer, found ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 endif()
@@ -61,6 +63,29 @@ if(PWCAP_SHELL_SOURCES)
         PRIVATE pwcap_core PkgConfig::PIPEWIRE pwcap_warnings)
 endif()
 
+# The CLI. Globs again: later plans add files under src/cli without editing this file. main.cpp is
+# the executable; every other .cpp in src/cli is the logic library that the tests link.
+if(TARGET pwcap)
+    file(GLOB PWCAP_CLI_LIB_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/cli/*.cpp)
+    list(FILTER PWCAP_CLI_LIB_SOURCES EXCLUDE REGEX "/main\\.cpp$")
+    if(PWCAP_CLI_LIB_SOURCES)
+        add_library(pwcap_cli_lib STATIC ${PWCAP_CLI_LIB_SOURCES})
+        target_include_directories(pwcap_cli_lib PUBLIC ${PROJECT_SOURCE_DIR}/src)
+        target_link_libraries(pwcap_cli_lib PUBLIC pwcap PRIVATE pwcap_warnings)
+    endif()
+
+    if(EXISTS ${PROJECT_SOURCE_DIR}/src/cli/main.cpp)
+        add_executable(pwcap_cli ${PROJECT_SOURCE_DIR}/src/cli/main.cpp)
+        # The library already owns the target name pwcap, so the executable is named by OUTPUT_NAME.
+        set_target_properties(pwcap_cli PROPERTIES OUTPUT_NAME pwcap)
+        target_link_libraries(pwcap_cli PRIVATE pwcap_warnings)
+        if(TARGET pwcap_cli_lib)
+            target_link_libraries(pwcap_cli PRIVATE pwcap_cli_lib)
+        endif()
+        install(TARGETS pwcap_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+endif()
+
 if(PWCAP_BUILD_TESTS)
     enable_testing()
     find_package(GTest CONFIG REQUIRED)
@@ -80,6 +105,8 @@ if(PWCAP_BUILD_TESTS)
         endforeach()
 
         set(PWCAP_PROBE_DEPENDENT_TESTS "")
+        # Test targets that run the pwcap executable (cli_* and pipewire_*); see the wiring below.
+        set(PWCAP_CLI_EXE_TESTS "")
 
         file(GLOB PWCAP_SHELL_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/shell/*_test.cpp)
         foreach(test_source IN LISTS PWCAP_SHELL_TEST_SOURCES)
@@ -110,7 +137,34 @@ if(PWCAP_BUILD_TESTS)
                 PROPERTIES LABELS pipewire TIMEOUT 120 RESOURCE_LOCK pipewire_session
                            SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
             list(APPEND PWCAP_PROBE_DEPENDENT_TESTS ${test_target})
+            list(APPEND PWCAP_CLI_EXE_TESTS ${test_target})
         endforeach()
+
+        # CLI unit tests: the pure logic library only, no PipeWire. Labelled cli.
+        if(TARGET pwcap_cli_lib)
+            file(GLOB PWCAP_CLI_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/cli/*_test.cpp)
+            foreach(test_source IN LISTS PWCAP_CLI_TEST_SOURCES)
+                get_filename_component(test_stem ${test_source} NAME_WE)
+                set(test_target cli_${test_stem})
+                add_executable(${test_target} ${test_source})
+                target_link_libraries(${test_target}
+                    PRIVATE pwcap_cli_lib pwcap pwcap_warnings GTest::gtest_main)
+                gtest_discover_tests(${test_target}
+                    DISCOVERY_MODE PRE_TEST
+                    PROPERTIES LABELS cli TIMEOUT 120)
+                list(APPEND PWCAP_CLI_EXE_TESTS ${test_target})
+            endforeach()
+        endif()
+
+        # Every cli and pipewire test gets the path of the built pwcap executable, so a test can
+        # spawn it. The executable is built first.
+        if(TARGET pwcap_cli)
+            foreach(test_target IN LISTS PWCAP_CLI_EXE_TESTS)
+                target_compile_definitions(${test_target} PRIVATE
+                    "PWCAP_CLI_EXE=\"$<TARGET_FILE:pwcap_cli>\"")
+                add_dependencies(${test_target} pwcap_cli)
+            endforeach()
+        endif()
 
         if(TARGET shell_capture_probe)
             foreach(test_target IN LISTS PWCAP_PROBE_DEPENDENT_TESTS)
