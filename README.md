@@ -7,8 +7,8 @@ script, `whisper.cpp`, or any other consumer.
 
 > **Status: pre-alpha.** The C++ library works on PipeWire 1.6.2: `Capture::open` links one
 > application's output into a capture stream and delivers PCM to your callback. The command-line
-> tool (`pwcap`), the examples and a release tag are not written yet. Anything marked "planned"
-> below does not exist yet.
+> tool (`pwcap`) and three examples (shell, Python, whisper.cpp) exist. A release tag does not
+> exist yet; anything marked "planned" below does not exist yet.
 
 ## Why
 
@@ -76,11 +76,12 @@ The API is still a pre-release sketch. Its deviations from the first design are 
 - Wait with `NoMatchingSource` while the application has no output stream, and link it when it
   starts (`reconnect` is on by default).
 - Re-link after the application restarts its stream (checked with a live test; see Limits).
+- `pwcap list` and `pwcap capture` command-line tools, described in "Command-line tool" below.
+- Examples that run against the installed tool: a shell one-liner, a Python consumer and a
+  `whisper.cpp` pipeline (see "Examples").
 
 ## Planned
 
-- `pwcap list` and `pwcap capture` command-line tools, with the same core as the library.
-- Three examples: a Python consumer, a `whisper.cpp` pipeline and a shell one-liner.
 - Release `v0.1.0` with the verified PipeWire version and browser limits in the release notes.
 
 ## Limits (read before you rely on it)
@@ -162,6 +163,108 @@ sudo apt install clang-21 clang-tidy-21 clang-format-21 libclang-rt-21-dev libst
 pipx install conan
 ```
 
+## Install
+
+This installs the library, the `pwcap` command-line tool and the CMake package to a prefix. It is
+the plain Release configuration. It needs no Conan, because the tests are off by default
+(`PWCAP_BUILD_TESTS=OFF`), so only the library build dependencies above are needed.
+
+```bash
+cmake -S . -B build/install -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-21
+cmake --build build/install
+cmake --install build/install --prefix "$HOME/.local"
+```
+
+The install puts these files under the prefix (`$HOME/.local` here):
+
+- `bin/pwcap`, the command-line tool;
+- `include/pwcap/capture.hpp` and `include/pwcap/list.hpp`, the public headers and the only installed
+  headers;
+- `lib/libpwcap.a` and `lib/libpwcap_core.a`, the library;
+- `lib/cmake/pwcap/`, the CMake package that `find_package(pwcap)` reads;
+- `share/doc/pwcap/LICENSE`.
+
+Put `$HOME/.local/bin` on your `PATH`. Then `command -v pwcap` prints `$HOME/.local/bin/pwcap`.
+
+## Command-line tool
+
+```
+pwcap list [--json]
+pwcap capture [--app NAME] [--binary NAME] [--node NAME] [--media NAME]
+              [--exclude FIELD=VALUE]... [--rate HZ] [--channels N]
+              [--format s16le|f32le] [--no-reconnect] [--quiet]
+pwcap --help
+```
+
+`pwcap capture` writes the selected application's audio to stdout as raw PCM. At least one selector
+is required. Selectors combine with AND, and each may appear once. Matching is exact and
+case-sensitive.
+
+| Flag | Matches |
+| --- | --- |
+| `--app NAME` | `application.name` |
+| `--binary NAME` | `application.process.binary` |
+| `--node NAME` | `node.name` |
+| `--media NAME` | `media.name`, for example a browser tab title |
+
+- `--exclude FIELD=VALUE` drops the streams whose FIELD (`app`, `binary`, `node` or `media`) equals
+  VALUE. It may repeat.
+- `--rate` and `--channels` default to 16000 and 1. `--format` defaults to `s16le`. The supported
+  pairs are 16000/1, 48000/2 and 48000/1, in either format. Another pair exits 1 with
+  `InvalidOptions`.
+- Reconnect is on by default: `capture` waits while the application has no output stream, then links
+  it when the stream starts. `--no-reconnect` ends the capture when the stream ends, or fails at
+  start when nothing matches (`NoMatchingSource`).
+- `--quiet` prints no diagnostics. The final error line is still printed.
+- Stdout carries only the audio bytes. Diagnostics go to stderr.
+- Stop a capture with SIGINT or SIGTERM. `pwcap` exits 0 after either signal.
+
+Exit codes:
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Stopped by SIGINT or SIGTERM, or the reader closed stdout (for example `head` after its bytes). |
+| 1 | Runtime error. The last stderr line names it: `NoPipeWire` (no PipeWire session), `NoMatchingSource` (nothing matches and `--no-reconnect` is set), or `InvalidOptions` (an unsupported rate and channels pair). |
+| 2 | Usage error: an unknown option, or no selector. |
+
+`pwcap list` prints the applications that have an audio output stream. Text output is a header line
+naming the columns `SERIAL`, `PID`, `APP`, `BINARY`, `NODE` and `MEDIA`, then one tab-separated row per
+stream. `--json` prints one JSON
+array of objects with the keys `serial`, `pid`, `app_name`, `binary`, `node_name` and `media_name`.
+`pwcap list` shows streams, not whether they are audible. It does not show levels.
+
+## Examples
+
+These commands run against the installed `pwcap`. Run them from the repository root, because the
+demo tone is generated by `tests/pipewire/tools/tones.py`. The demo starts a 440 Hz tone as an
+application named `pwcap-demo`:
+
+```bash
+python3 tests/pipewire/tools/tones.py generate --freq 440 --seconds 60 --amplitude 0.1 --out tone440.wav
+pw-play -P '{ application.name=pwcap-demo }' tone440.wav &
+pwcap list
+```
+
+Record ten seconds of that application:
+
+```bash
+timeout --preserve-status -s INT 10 pwcap capture --app pwcap-demo > ten-seconds.raw
+pwcap capture --app pwcap-demo | head -c 320000 > ten-seconds.raw
+```
+
+The first line stops after 10 seconds with SIGINT. The second writes exactly 320000 bytes (10
+seconds of 16 kHz mono S16LE) and exits 0 when `head` closes the pipe. To convert that raw file to
+WAV, with ffmpeg (optional):
+
+```bash
+ffmpeg -loglevel error -y -f s16le -ar 16000 -ac 1 -i ten-seconds.raw ten-seconds.wav
+```
+
+Each example has its own
+README with the full commands and what they show:
+
+- [Shell](examples/shell/README.md): the one-liners above, and an ffmpeg conversion to WAV.
+
 ## Build
 
 Build with the dependencies above. Other compilers are not tested.
@@ -187,25 +290,31 @@ run, they play quiet test tones through your speakers and check the graph before
 
 ## Link from your project
 
-There is no install step or CMake package yet. Build the library, then compile your program
-against the build tree. The example below uses the `release` build from the previous section
-and the usage example from the top of this file, saved as `app.cpp`:
+Install the library first (section Install). Then a CMake project that uses it needs only the
+package and the target:
 
-```bash
-clang++-21 -std=c++23 -O2 -I include app.cpp \
-    build/$PWCAP_BUILD_ID/release/libpwcap.a build/$PWCAP_BUILD_ID/release/libpwcap_core.a \
-    $(pkg-config --cflags --libs libpipewire-0.3) -pthread -o app
-./app > audio.raw
+```cmake
+find_package(pwcap 0.1 CONFIG REQUIRED)
+
+add_executable(app app.cpp)
+target_link_libraries(app PRIVATE pwcap::pwcap)
 ```
 
-Run it from the repository root, with `$PWCAP_BUILD_ID` set to the id you used for the
-`release` build. Without a PipeWire session the program prints `NoPipeWire` and exits with
-status 1. With a session and an application that plays audio, it writes 16 kHz mono S16LE PCM to
-`audio.raw` while it runs. I checked this with a 440 Hz tone played by `pw-play` (the app name
-was `pw-play`, so the example's `"Zoom"` was changed for that test): the file came out 7.98 s
-long with its peak at 440 Hz. It has not been tested with Zoom.
+Configure the project with the install prefix on the search path:
 
-The command-line tool and the scripting examples are planned, not written. See "Planned".
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
+cmake --build build
+```
+
+The repository's `tests/install/` directory holds a consumer project built this way. The install
+check builds it out of tree against the installed package.
+
+The usage example at the top of this file, saved as `app.cpp`, writes 16 kHz mono S16LE PCM to
+stdout while it runs. Without a PipeWire session it prints `NoPipeWire` and exits with status 1.
+An earlier build of the same program, compiled against the build tree, was checked with a 440 Hz
+tone played by `pw-play`, with the app name changed from `"Zoom"` to `pw-play`. The file came out
+7.98 s long with its peak at 440 Hz. It has not been tested with Zoom.
 
 ## Related projects
 
