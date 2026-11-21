@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,11 @@ public:
     // Called with the lock held; waits (releasing it) until the initial registry round trip is
     // done, every bound Stream/Output/Audio node delivered its first info, and the capture node's
     // input ports are mirrored. Then runs the first reconcile. NoPipeWire on timeout.
+    //
+    // reconnect=true: succeeds even when no node matches; the reconciler then waits and posts
+    // "NoMatchingSource:". reconnect=false: NoMatchingSource when nothing matches; otherwise the
+    // object.serial of every selected node is pinned, the first links are requested, and the call
+    // waits until each is announced (LinkFailed when one is rejected or the wait times out).
     [[nodiscard]] std::expected<void, pwcap::Error> start(std::uint32_t capture_node_id,
                                                           std::chrono::milliseconds timeout);
 
@@ -91,11 +97,19 @@ private:
     // Node callback: the bound node delivered (or changed) its info.
     void on_node_info(std::uint32_t id, const pw_node_info* info);
     // Link proxy callbacks.
-    void on_link_removed(const core::LinkInfo& key);
-    void on_link_error(const core::LinkInfo& key, int res, const char* message);
+    void on_link_removed(const core::LinkInfo& key, const OwnedLink* entry);
+    void on_link_error(const core::LinkInfo& key, const OwnedLink* entry, int res,
+                       const char* message);
 
     void schedule_reconcile();
     void reconcile();
+    // The part of reconcile() that depends on the reconnect mode and on what is selected.
+    void track_sources(const std::vector<core::NodeId>& sources);
+    [[nodiscard]] core::GraphSnapshot pinned_view(core::GraphSnapshot snapshot) const;
+    [[nodiscard]] bool pinned_stream_present() const;
+    [[nodiscard]] bool first_links_settled() const;
+    // The registry changed: a link request that failed may be tried again.
+    void registry_changed();
     void apply_remove(const core::LinkInfo& link);
     void apply_add(const core::LinkInfo& link);
     [[nodiscard]] core::GraphSnapshot build_snapshot() const;
@@ -108,8 +122,7 @@ private:
     pw_thread_loop* loop_;
     pw_core* core_;
     core::Selection selection_;
-    // Read by the reconnect rules that plan 04-05 adds to start() and reconcile().
-    [[maybe_unused]] bool reconnect_;
+    bool reconnect_;
     DiagnosticQueue* diagnostics_;
 
     // Handles first, then the hooks that listen to them (see pw_handles.hpp).
@@ -124,6 +137,21 @@ private:
     std::map<std::uint32_t, core::PortInfo> ports_;
     std::map<std::uint32_t, core::LinkInfo> links_;
     std::map<core::LinkInfo, std::unique_ptr<OwnedLink>> owned_links_;
+
+    // Link requests PipeWire rejected, kept alive (not destroyed inside their own callback) and
+    // not repeated until the registry changes.
+    std::vector<std::unique_ptr<OwnedLink>> failed_links_;
+    std::set<core::LinkInfo> failed_keys_;
+    // object.serial of the nodes selected at open; used only with reconnect=false.
+    std::vector<core::Serial> pinned_;
+
+    enum class SourceState : std::uint8_t { Unknown, Present, Absent };
+    SourceState source_state_{SourceState::Unknown};
+    // Nothing is planned, posted or linked before start() has seen a complete registry.
+    bool started_{false};
+    bool stopped_posted_{false};
+    bool lost_connection_{false};
+    std::size_t link_failures_{0};
 
     std::uint32_t capture_node_id_{PW_ID_ANY};
     int sync_seq_{0};

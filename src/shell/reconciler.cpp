@@ -135,6 +135,9 @@ struct Reconciler::OwnedLink {
     core::LinkInfo key;
     // Requested by us and not yet announced by the registry.
     bool pending{true};
+    // PipeWire rejected the request. The entry waits in Reconciler::failed_links_ and every later
+    // event of its proxy is ignored.
+    bool failed{false};
     ProxyPtr proxy;
     HookGuard hook;
 };
@@ -162,14 +165,20 @@ struct Callbacks {
     }
     static void link_removed(void* data) {
         auto* entry = static_cast<Reconciler::OwnedLink*>(data);
+        if (entry->failed) {
+            return;
+        }
         // Copy first: the handler erases the entry that owns the key.
         const core::LinkInfo key = entry->key;
-        entry->owner->on_link_removed(key);
+        entry->owner->on_link_removed(key, entry);
     }
     static void link_error(void* data, int /*seq*/, int res, const char* message) {
         auto* entry = static_cast<Reconciler::OwnedLink*>(data);
+        if (entry->failed) {
+            return;
+        }
         const core::LinkInfo key = entry->key;
-        entry->owner->on_link_error(key, res, message);
+        entry->owner->on_link_error(key, entry, res, message);
     }
 };
 
@@ -262,12 +271,49 @@ std::expected<void, pwcap::Error> Reconciler::start(std::uint32_t capture_node_i
     // done event, and that handler signals.
     // A raw loop: the wait primitive releases the lock, and no algorithm expresses that.
     while (!ready_to_start()) {
-        if (pw_thread_loop_timed_wait_full(loop_, &deadline) != 0) {
+        if (lost_connection_ || pw_thread_loop_timed_wait_full(loop_, &deadline) != 0) {
             return std::unexpected{pwcap::Error::NoPipeWire};
         }
     }
+    started_ = true;
+    if (reconnect_) {
+        // Waiting for an application is a normal state: reconcile() reports it and open succeeds.
+        reconcile();
+        return {};
+    }
+
+    // reconnect=false: open needs a source, and the streams selected now are the only ones this
+    // capture will ever follow.
+    const std::vector<core::NodeId> sources = core::select_sources(build_snapshot(), selection_);
+    if (sources.empty()) {
+        return std::unexpected{pwcap::Error::NoMatchingSource};
+    }
+    pinned_ = nodes_ | std::views::values |
+              std::views::filter([&](const std::unique_ptr<NodeEntry>& entry) {
+                  return entry->ready && std::ranges::contains(sources, entry->id);
+              }) |
+              std::views::transform(
+                  [](const std::unique_ptr<NodeEntry>& entry) { return entry->info.serial; }) |
+              std::ranges::to<std::vector>();
     reconcile();
+    // Every requested link must be announced by the registry, or have failed.
+    // A raw loop: same wait primitive as above.
+    while (!first_links_settled()) {
+        if (lost_connection_ || pw_thread_loop_timed_wait_full(loop_, &deadline) != 0) {
+            return std::unexpected{pwcap::Error::LinkFailed};
+        }
+    }
+    if (link_failures_ != 0) {
+        return std::unexpected{pwcap::Error::LinkFailed};
+    }
     return {};
+}
+
+bool Reconciler::first_links_settled() const {
+    return link_failures_ != 0 || std::ranges::none_of(owned_links_ | std::views::values,
+                                                       [](const std::unique_ptr<OwnedLink>& owned) {
+                                                           return owned->pending;
+                                                       });
 }
 
 bool Reconciler::ready_to_start() const {
@@ -337,16 +383,36 @@ void Reconciler::on_global(std::uint32_t id, const char* type, const spa_dict* p
     } else {
         return;
     }
+    registry_changed();
     schedule_reconcile();
 }
 
 void Reconciler::on_global_remove(std::uint32_t id) {
+    // A registry link that goes away takes our bookkeeping for it along: the server removes the
+    // link when one of its ports dies, and the proxy's own removed event may come later.
+    if (const auto link = links_.find(id); link != links_.end()) {
+        if (const auto owned = owned_links_.find(link->second);
+            owned != owned_links_.end() && !owned->second->pending) {
+            owned_links_.erase(owned);
+        }
+    }
+    // Ids are recycled (s0-item3): a link we asked for between a port's old and new life must not
+    // be taken for a link between the new ports.
+    if (ports_.contains(id)) {
+        std::erase_if(owned_links_, [id](const auto& entry) {
+            return entry.second->pending &&
+                   (entry.first.output_port_id == id || entry.first.input_port_id == id);
+        });
+    }
     // Each erase destroys an entry's hook before its proxy (member order).
     const std::size_t removed = nodes_.erase(id) + ports_.erase(id) + links_.erase(id);
     if (removed != 0) {
+        registry_changed();
         schedule_reconcile();
     }
 }
+
+void Reconciler::registry_changed() { failed_keys_.clear(); }
 
 // ---- core ------------------------------------------------------------------------------------
 
@@ -379,9 +445,12 @@ void Reconciler::on_core_done(std::uint32_t id, int seq) {
 }
 
 void Reconciler::on_core_error(std::uint32_t id, int res, const char* message) {
-    if (id == PW_ID_CORE && res == -EPIPE) {
-        post(std::format("NoPipeWire: connection to the PipeWire daemon lost: {}",
-                         message != nullptr ? message : spa_strerror(res)));
+    // The text varies with the PipeWire version; the diagnostic is fixed.
+    static_cast<void>(message);
+    if (id == PW_ID_CORE && res == -EPIPE && !lost_connection_) {
+        lost_connection_ = true;
+        linked_.store(false);
+        post("Stopped: lost the connection to PipeWire");
         pw_thread_loop_signal(loop_, false);
     }
 }
@@ -409,19 +478,31 @@ void Reconciler::on_node_info(std::uint32_t id, const pw_node_info* info) {
 
 // ---- links -----------------------------------------------------------------------------------
 
-void Reconciler::on_link_removed(const core::LinkInfo& key) {
-    owned_links_.erase(key);
+void Reconciler::on_link_removed(const core::LinkInfo& key, const OwnedLink* entry) {
+    // Only the entry that raised the event: a newer request for the same ports must stay.
+    if (const auto owned = owned_links_.find(key);
+        owned != owned_links_.end() && owned->second.get() == entry) {
+        owned_links_.erase(owned);
+    }
     schedule_reconcile();
 }
 
-void Reconciler::on_link_error(const core::LinkInfo& key, int res, const char* message) {
+void Reconciler::on_link_error(const core::LinkInfo& key, const OwnedLink* entry, int res,
+                               const char* message) {
     post(std::format("LinkFailed: {}: {}", link_name(key),
                      message != nullptr ? message : spa_strerror(res)));
-    const auto owned = owned_links_.find(key);
-    if (owned != owned_links_.end() && owned->second->pending) {
+    ++link_failures_;
+    if (const auto owned = owned_links_.find(key);
+        owned != owned_links_.end() && owned->second.get() == entry && owned->second->pending) {
+        // No retry here and no new reconcile: a rejected request would be rejected again. The next
+        // registry change plans again. The entry is parked, not destroyed: this runs inside its
+        // own proxy's event.
+        owned->second->failed = true;
+        failed_keys_.insert(key);
+        failed_links_.push_back(std::move(owned->second));
         owned_links_.erase(owned);
-        schedule_reconcile();
     }
+    pw_thread_loop_signal(loop_, false);
 }
 
 // ---- reconcile -------------------------------------------------------------------------------
@@ -447,12 +528,62 @@ std::vector<core::PortId> Reconciler::capture_inputs() const {
            std::ranges::to<std::vector>();
 }
 
+core::GraphSnapshot Reconciler::pinned_view(core::GraphSnapshot snapshot) const {
+    // reconnect=false: an application stream that was not selected at open does not exist for the
+    // planner, so a restarted stream (new object.serial) is never linked. Its ports and links stay,
+    // and a link from it into our capture is removed like any foreign link.
+    std::erase_if(snapshot.nodes, [this](const core::NodeInfo& node) {
+        return node.media_class == core::kStreamOutputAudio &&
+               !std::ranges::contains(pinned_, node.serial);
+    });
+    return snapshot;
+}
+
+bool Reconciler::pinned_stream_present() const {
+    return std::ranges::any_of(nodes_ | std::views::values,
+                               [this](const std::unique_ptr<NodeEntry>& entry) {
+                                   return std::ranges::contains(pinned_, entry->info.serial);
+                               });
+}
+
+void Reconciler::track_sources(const std::vector<core::NodeId>& sources) {
+    if (!reconnect_) {
+        if (!stopped_posted_ && !pinned_stream_present()) {
+            stopped_posted_ = true;
+            post("Stopped: the selected stream ended and reconnect is off");
+        }
+        return;
+    }
+    // One message per transition, never one per reconcile.
+    const SourceState now = sources.empty() ? SourceState::Absent : SourceState::Present;
+    const SourceState before = std::exchange(source_state_, now);
+    if (now == before) {
+        return;
+    }
+    if (now == SourceState::Absent) {
+        post("NoMatchingSource: no application stream matches the include rule; waiting");
+    } else if (before == SourceState::Absent) {
+        post("pwcap: matching stream found; linking");
+    }
+}
+
 void Reconciler::reconcile() {
+    if (!started_ || lost_connection_) {
+        return; // the registry is not complete yet, or the daemon is gone
+    }
+    // Rejected link requests parked by on_link_error. This runs from a core done event or from
+    // start(), never inside a proxy's own event, so destroying them is safe.
+    failed_links_.clear();
+
     const std::vector<core::PortId> inputs = capture_inputs();
     core::GraphSnapshot snapshot = build_snapshot();
+    if (!reconnect_) {
+        snapshot = pinned_view(std::move(snapshot));
+    }
 
     // linked(): a registry link, pending links excluded, from a selected source to a capture input.
     const std::vector<core::NodeId> sources = core::select_sources(snapshot, selection_);
+    track_sources(sources);
     const bool linked = std::ranges::any_of(snapshot.links, [&](const core::LinkInfo& link) {
         const auto output =
             std::ranges::find(snapshot.ports, link.output_port_id, &core::PortInfo::port_id);
@@ -491,8 +622,8 @@ void Reconciler::apply_remove(const core::LinkInfo& link) {
 }
 
 void Reconciler::apply_add(const core::LinkInfo& link) {
-    if (owned_links_.contains(link)) {
-        return; // already requested
+    if (owned_links_.contains(link) || failed_keys_.contains(link)) {
+        return; // already requested, or rejected and not retried until the registry changes
     }
     const std::string output = std::to_string(link.output_port_id);
     const std::string input = std::to_string(link.input_port_id);
@@ -506,6 +637,7 @@ void Reconciler::apply_add(const core::LinkInfo& link) {
         .flags = 0, .n_items = static_cast<std::uint32_t>(items.size()), .items = items.data()};
     const PropertiesPtr props{pw_properties_new_dict(&dict)};
     if (!props) {
+        ++link_failures_;
         post(std::format("LinkFailed: {}: out of memory", link_name(link)));
         return;
     }
@@ -515,6 +647,8 @@ void Reconciler::apply_add(const core::LinkInfo& link) {
     void* created = pw_core_create_object(core_, "link-factory", PW_TYPE_INTERFACE_Link,
                                           PW_VERSION_LINK, &props->dict, 0);
     if (created == nullptr) {
+        ++link_failures_;
+        failed_keys_.insert(link);
         post(std::format("LinkFailed: {}: {}", link_name(link), spa_strerror(-errno)));
         return;
     }

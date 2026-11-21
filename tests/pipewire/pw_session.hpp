@@ -6,7 +6,8 @@
 // from `pw-dump` and nlohmann_json. The oracle never uses the library's own registry code, so the
 // tests do not judge the library with the library.
 //
-// Later plans extend this header (04-05 adds a link guard); the signatures below stay as they are.
+// Later plans extend this header (04-05 added the link guard and the shared tone helpers); the
+// signatures that earlier plans use stay as they are.
 
 #include <fcntl.h>
 #include <signal.h>
@@ -17,20 +18,24 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cerrno>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <mutex>
 #include <numbers>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -552,6 +557,381 @@ template <typename Predicate>
         std::this_thread::sleep_for(step);
     }
 }
+
+// ---- shared tone helpers (04-05) ----------------------------------------------------------------
+
+inline constexpr std::string_view kStreamOutputClass = "Stream/Output/Audio";
+inline constexpr std::string_view kSinkClass = "Audio/Sink";
+
+// `pwcap-test-<pid of this process>-<suffix>`: unique per run, so parallel runs keep apart.
+[[nodiscard]] inline std::string unique_tone_name(std::string_view suffix) {
+    return "pwcap-test-" + std::to_string(::getpid()) + "-" + std::string{suffix};
+}
+
+// The prefix of every capture node this process creates: `pwcap-<pid>-`.
+[[nodiscard]] inline std::string own_capture_prefix() {
+    return "pwcap-" + std::to_string(::getpid()) + "-";
+}
+
+// Writes a stereo tone WAV into `dir` and plays it with pw-play under the node name `name`.
+[[nodiscard]] inline Child play_tone(const TempDir& dir, const std::string& name, double freq_hz,
+                                     double seconds) {
+    const std::filesystem::path wav = dir.path() / (name + ".wav");
+    write_tone_wav(wav, freq_hz, seconds, 2, 0.1);
+    return Child{
+        std::vector<std::string>{"pw-play", "-P", "{ node.name=" + name + " }", wav.string()}};
+}
+
+// One link from an output port to an input port.
+using PortPair = std::pair<std::uint32_t, std::uint32_t>;
+
+[[nodiscard]] inline bool ends_in_sink_input(const Graph& graph, const GLink& link) {
+    const GNode* sink = graph.node_by_id(link.in_node);
+    const GPort* port = graph.port_by_id(link.in_port);
+    return sink != nullptr && sink->media_class == kSinkClass && port != nullptr && !port->output;
+}
+
+// The (out port, in port) pairs by which the node called `name` is linked to a sink input.
+[[nodiscard]] inline std::vector<PortPair> sink_links_of(const Graph& graph,
+                                                         std::string_view name) {
+    std::vector<PortPair> pairs;
+    const GNode* node = graph.node_by_name(name);
+    if (node == nullptr) {
+        return pairs;
+    }
+    const std::vector<const GLink*> out = graph.links_out_of(node->id);
+    std::ranges::for_each(out, [&](const GLink* link) {
+        if (ends_in_sink_input(graph, *link)) {
+            pairs.emplace_back(link->out_port, link->in_port);
+        }
+    });
+    return pairs;
+}
+
+// True when `name` is a Stream/Output/Audio node with exactly the output ports FL and FR, each
+// linked to an input port of an Audio/Sink node.
+[[nodiscard]] inline bool stereo_on_sink(const Graph& graph, std::string_view name) {
+    const GNode* node = graph.node_by_name(name);
+    if (node == nullptr || node->media_class != kStreamOutputClass) {
+        return false;
+    }
+    std::vector<const GPort*> outputs = graph.ports_of(node->id);
+    std::erase_if(outputs, [](const GPort* port) { return !port->output; });
+    const auto has_one = [&](std::string_view channel) {
+        return std::ranges::count(outputs, channel, [](const GPort* port) -> std::string_view {
+                   return port->channel;
+               }) == 1;
+    };
+    if (outputs.size() != 2 || !has_one("FL") || !has_one("FR")) {
+        return false;
+    }
+    const std::vector<PortPair> pairs = sink_links_of(graph, name);
+    return std::ranges::all_of(outputs, [&](const GPort* port) {
+        return std::ranges::any_of(pairs,
+                                   [&](const PortPair& pair) { return pair.first == port->id; });
+    });
+}
+
+[[nodiscard]] inline bool graph_has_link(const Graph& graph, const PortPair& pair) {
+    return std::ranges::any_of(graph.links, [&](const GLink& link) {
+        return link.out_port == pair.first && link.in_port == pair.second;
+    });
+}
+
+// nullopt when the links into the one node named `capture_prefix`* are exactly
+// {source FL -> capture FL, source FR -> capture FR}, matched by audio.channel, where "source" is
+// every node called `source_name`. Otherwise the reason, for the test message.
+[[nodiscard]] inline std::optional<std::string> exact_capture_links(const Graph& graph,
+                                                                    std::string_view capture_prefix,
+                                                                    std::string_view source_name) {
+    const std::vector<const GNode*> captures = graph.nodes_by_prefix(capture_prefix);
+    if (captures.size() != 1) {
+        return "expected one node named " + std::string{capture_prefix} + "*, found " +
+               std::to_string(captures.size());
+    }
+    const std::vector<const GLink*> into = graph.links_into(captures.front()->id);
+    std::vector<std::string> pairs;
+    std::string foreign;
+    std::ranges::for_each(into, [&](const GLink* link) {
+        const GPort* out = graph.port_by_id(link->out_port);
+        const GPort* in = graph.port_by_id(link->in_port);
+        const GNode* source = graph.node_by_id(link->out_node);
+        if (out == nullptr || in == nullptr || source == nullptr) {
+            foreign += " link " + std::to_string(link->id) + " has an endpoint missing;";
+            return;
+        }
+        if (source->name != source_name || out->monitor) {
+            foreign += " link " + std::to_string(link->id) + " from " + source->name + ";";
+            return;
+        }
+        pairs.push_back(out->channel + "->" + in->channel);
+    });
+    std::ranges::sort(pairs);
+    if (!foreign.empty()) {
+        return "links into the capture from other nodes:" + foreign;
+    }
+    if (pairs != std::vector<std::string>{"FL->FL", "FR->FR"}) {
+        std::string found;
+        std::ranges::for_each(pairs, [&](const std::string& pair) { found += " " + pair; });
+        return "links from " + std::string{source_name} + " into the capture are [" + found +
+               " ], expected [ FL->FL FR->FR ]";
+    }
+    return std::nullopt;
+}
+
+// ---- continuous link guard (04-05) --------------------------------------------------------------
+
+namespace detail {
+
+// Splits `line` into at most `count` whitespace-separated fields; the last field is the rest of
+// the line with surrounding blanks removed (a port alias may contain spaces).
+[[nodiscard]] inline std::vector<std::string_view> split_fields(std::string_view line,
+                                                                std::size_t count) {
+    constexpr std::string_view kBlanks = " \t\r";
+    std::vector<std::string_view> fields;
+    std::string_view rest = line;
+    while (fields.size() + 1 < count) {
+        const std::size_t begin = rest.find_first_not_of(kBlanks);
+        if (begin == std::string_view::npos) {
+            return fields;
+        }
+        rest.remove_prefix(begin);
+        const std::size_t end = rest.find_first_of(kBlanks);
+        if (end == std::string_view::npos) {
+            fields.push_back(rest);
+            return fields;
+        }
+        fields.push_back(rest.substr(0, end));
+        rest.remove_prefix(end);
+    }
+    const std::size_t begin = rest.find_first_not_of(kBlanks);
+    if (begin == std::string_view::npos) {
+        return fields;
+    }
+    rest.remove_prefix(begin);
+    const std::size_t last = rest.find_last_not_of(kBlanks);
+    fields.push_back(rest.substr(0, last + 1));
+    return fields;
+}
+
+[[nodiscard]] inline std::optional<std::uint64_t> parse_id(std::string_view text) {
+    if (text.empty()) {
+        return std::nullopt;
+    }
+    std::uint64_t value = 0;
+    const char* const first = std::to_address(text.begin());
+    const char* const last = std::to_address(text.end());
+    const auto [end, error] = std::from_chars(first, last, value);
+    if (error != std::errc{} || end != last) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+[[nodiscard]] inline bool is_event_sign(std::string_view field) {
+    return field == "+" || field == "-" || field == "*";
+}
+
+} // namespace detail
+
+// Watches `pw-link -m` for the whole life of the object, so a link that exists for a few
+// milliseconds cannot slip between two pw-dump snapshots. The guard records every link added to a
+// node whose name starts with `capture_prefix` when its other end is not a port whose alias starts
+// with one of the allowed prefixes (`node.name:`). The monitor prints each link under both of its
+// ports; the replay of the existing graph at start counts as live lines.
+//
+// Format (verified against pw-link 1.6.2): a port header is `SIGN PORTID node.name:port.name`, a
+// link line is `SIGN LINKID |<- PEERID node.name:port.name` or `... |-> ...` and belongs to the
+// latest header. `stdbuf -oL` keeps the output line-buffered; without it lines arrive in bursts.
+class LinkGuard {
+public:
+    LinkGuard(std::string capture_prefix, std::vector<std::string> allowed_prefixes)
+        : capture_prefix_(std::move(capture_prefix)), allowed_(std::move(allowed_prefixes)) {
+        std::array<int, 2> ends{-1, -1};
+        if (::pipe2(ends.data(), O_CLOEXEC) != 0) {
+            throw std::runtime_error("LinkGuard: pipe2 failed");
+        }
+        UniqueFd read_end{ends[0]};
+        UniqueFd write_end{ends[1]};
+
+        std::vector<std::string> storage{"stdbuf", "-oL", "pw-link", "-m", "-I", "-o", "-i", "-l"};
+        std::vector<char*> pointers = null_terminated_pointers(storage);
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, write_end.get(), STDOUT_FILENO);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        pid_t pid = 0;
+        const int spawned =
+            ::posix_spawnp(&pid, pointers.front(), &actions, nullptr, pointers.data(), environ);
+        posix_spawn_file_actions_destroy(&actions);
+        if (spawned != 0) {
+            throw std::runtime_error("LinkGuard: cannot start stdbuf pw-link -m");
+        }
+        pid_ = pid;
+        write_end.reset();
+        reader_ = std::jthread{
+            [this, fd = std::move(read_end)](const std::stop_token&) { read_all(fd.get()); }};
+    }
+
+    LinkGuard(const LinkGuard&) = delete;
+    LinkGuard& operator=(const LinkGuard&) = delete;
+    LinkGuard(LinkGuard&&) = delete;
+    LinkGuard& operator=(LinkGuard&&) = delete;
+
+    ~LinkGuard() {
+        if (pid_ > 0) {
+            ::kill(pid_, SIGTERM);
+            int status = 0;
+            ::waitpid(pid_, &status, 0);
+        }
+        // The child is gone, so the reader sees end of file and the jthread joins on destruction.
+    }
+
+    // True once the monitor printed its first line (the replay of the existing graph), so the
+    // guard is armed. False after `timeout`.
+    [[nodiscard]] bool wait_armed(std::chrono::milliseconds timeout) const {
+        return wait_until([this] { return lines_seen() > 0; }, timeout, 5ms);
+    }
+
+    [[nodiscard]] std::size_t lines_seen() const {
+        const std::scoped_lock lock{mutex_};
+        return lines_seen_;
+    }
+
+    // The monitor ended (it was killed or pw-link failed): the guard is blind. Fail closed.
+    [[nodiscard]] bool monitor_ended() const noexcept { return ended_.load(); }
+
+    // Distinct links added to the capture node so far, from any source.
+    [[nodiscard]] std::size_t capture_link_adds() const {
+        const std::scoped_lock lock{mutex_};
+        return adds_;
+    }
+
+    [[nodiscard]] std::vector<std::string> violations() const {
+        const std::scoped_lock lock{mutex_};
+        return violations_;
+    }
+
+private:
+    [[nodiscard]] bool is_capture(std::string_view alias) const {
+        return alias.starts_with(capture_prefix_);
+    }
+
+    [[nodiscard]] bool is_allowed(std::string_view alias) const {
+        return std::ranges::any_of(
+            allowed_, [&](const std::string& prefix) { return alias.starts_with(prefix); });
+    }
+
+    void read_all(int fd) {
+        std::string pending;
+        std::array<char, 4096> buffer{};
+        // A raw loop: a blocking read until the monitor closes its end.
+        for (;;) {
+            const ssize_t count = ::read(fd, buffer.data(), buffer.size());
+            if (count > 0) {
+                pending.append(buffer.data(), static_cast<std::size_t>(count));
+                std::size_t begin = 0;
+                // A raw loop: lines are cut out of a growing buffer.
+                for (std::size_t end = pending.find('\n', begin); end != std::string::npos;
+                     end = pending.find('\n', begin)) {
+                    handle_line(std::string_view{pending}.substr(begin, end - begin));
+                    begin = end + 1;
+                }
+                pending.erase(0, begin);
+            } else if (count == 0 || errno != EINTR) {
+                break;
+            }
+        }
+        ended_.store(true);
+    }
+
+    void handle_line(std::string_view line) {
+        const std::scoped_lock lock{mutex_};
+        ++lines_seen_;
+        const std::vector<std::string_view> head = detail::split_fields(line, 3);
+        if (head.size() < 3 || !detail::is_event_sign(head[0]) || !detail::parse_id(head[1])) {
+            return;
+        }
+        if (!head[2].starts_with("|<-") && !head[2].starts_with("|->")) {
+            current_port_ = std::string{head[2]}; // a port header
+            return;
+        }
+        const std::vector<std::string_view> fields = detail::split_fields(line, 5);
+        if (fields.size() < 5 || !detail::parse_id(fields[3]) || current_port_.empty()) {
+            return;
+        }
+        const std::optional<std::uint64_t> link_id = detail::parse_id(fields[1]);
+        const std::string_view peer = fields[4];
+        const bool touches = is_capture(current_port_) || is_capture(peer);
+        if (!touches || !link_id) {
+            return;
+        }
+        if (fields[0] == "-") {
+            live_links_.erase(*link_id);
+            return;
+        }
+        if (fields[0] != "+") {
+            return;
+        }
+        if (live_links_.insert(*link_id).second) {
+            ++adds_;
+        }
+        const std::string_view other = is_capture(current_port_) ? peer : current_port_;
+        if (!is_capture(other) && !is_allowed(other)) {
+            std::string text = "link " + std::to_string(*link_id) + ": " + current_port_ + " <> " +
+                               std::string{peer};
+            if (std::ranges::find(violations_, text) == violations_.end()) {
+                violations_.push_back(std::move(text));
+            }
+        }
+    }
+
+    std::string capture_prefix_;
+    std::vector<std::string> allowed_;
+    pid_t pid_{-1};
+    std::atomic<bool> ended_{false};
+
+    mutable std::mutex mutex_;
+    std::string current_port_;
+    std::set<std::uint64_t> live_links_;
+    std::size_t lines_seen_{0};
+    std::size_t adds_{0};
+    std::vector<std::string> violations_;
+
+    // Last: destroyed first, and joined only after the destructor body has ended the child.
+    std::jthread reader_;
+};
+
+// ---- diagnostic collector (04-05) ---------------------------------------------------------------
+
+// Collects the messages a Capture delivers to its Diagnostic callback. The callback runs on a
+// library thread, the tests read from the test thread, so every access holds the mutex.
+class DiagnosticLog {
+public:
+    void add(std::string_view message) {
+        const std::scoped_lock lock{mutex_};
+        messages_.emplace_back(message);
+    }
+
+    [[nodiscard]] std::size_t count_prefix(std::string_view prefix) const {
+        const std::scoped_lock lock{mutex_};
+        return static_cast<std::size_t>(std::ranges::count_if(
+            messages_, [&](const std::string& message) { return message.starts_with(prefix); }));
+    }
+
+    [[nodiscard]] bool has_prefix(std::string_view prefix) const {
+        return count_prefix(prefix) > 0;
+    }
+
+    [[nodiscard]] std::vector<std::string> all() const {
+        const std::scoped_lock lock{mutex_};
+        return messages_;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<std::string> messages_;
+};
 
 } // namespace pwcap::test
 
