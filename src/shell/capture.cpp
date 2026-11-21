@@ -1,7 +1,10 @@
 #include "pwcap/capture.hpp"
 
 #include "core/match.hpp"
+#include "core/pcm.hpp"
+#include "core/spsc_ring.hpp"
 #include "shell/capture_stream.hpp"
+#include "shell/consumer.hpp"
 #include "shell/diagnostics.hpp"
 #include "shell/pw_handles.hpp"
 #include "shell/reconciler.hpp"
@@ -13,14 +16,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <memory>
 #include <mutex>
 #include <ranges>
-#include <stop_token>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -31,7 +33,8 @@ namespace {
 using namespace std::chrono_literals;
 
 constexpr std::chrono::milliseconds kConnectTimeout = 2000ms;
-constexpr std::chrono::milliseconds kConsumerPoll = 5ms;
+// 2 s of the fixed 48 kHz capture: 96000 frames of 8 bytes, 768 KiB.
+constexpr std::size_t kRingFrames = 96000;
 
 // Exact, case-sensitive: every public Match field becomes an Exact pattern (D-02).
 [[nodiscard]] core::Match to_core_match(const Match& match) {
@@ -71,10 +74,8 @@ struct Capture::Impl {
     // destructor stops the loop thread, and stopping it while this thread holds the lock hangs.
     [[nodiscard]] std::expected<void, Error> build(core::Selection selection, bool reconnect);
 
-    // The consumer thread body: delivers diagnostics to the user's callback.
-    void consume(const std::stop_token& stop);
-
-    // Delivers the queued diagnostics on the calling thread.
+    // Delivers the queued diagnostics on the calling thread. Used only while the consumer does not
+    // exist yet; afterwards the consumer owns the Diagnostic.
     void deliver_pending() {
         std::ranges::for_each(queue.take(), [this](const std::string& message) {
             if (diagnostic) {
@@ -87,24 +88,22 @@ struct Capture::Impl {
     // public members is the intended shape.
     // Declaration order matters for the members the destructor leaves to the compiler.
     // NOLINTBEGIN(misc-non-private-member-variables-in-classes)
-    Sink sink;
     Diagnostic diagnostic;
     shell::DiagnosticQueue queue;
+    // Before the stream: the stream's process callback pushes into it until the stream is gone.
+    core::SpscRing<core::StereoFrame> ring{kRingFrames};
     shell::ThreadLoopPtr loop;
     shell::ContextPtr context;
     shell::CorePtr connection;
     std::unique_ptr<shell::CaptureStream> stream;
     std::unique_ptr<shell::Reconciler> reconciler;
-    std::jthread consumer;
+    std::unique_ptr<shell::Consumer> consumer;
     // NOLINTEND(misc-non-private-member-variables-in-classes)
 };
 
 Capture::Impl::~Impl() {
-    // 1. The consumer first: it does one final drain when stop is requested.
-    if (consumer.joinable()) {
-        consumer.request_stop();
-        consumer.join();
-    }
+    // 1. The consumer first: it joins, and does one final drain of the ring and the queue.
+    consumer.reset();
     if (loop) {
         {
             // 2. Under the lock: our links go with the reconciler, then the stream, then the core.
@@ -149,7 +148,8 @@ std::expected<void, Error> Capture::Impl::build(core::Selection selection, bool 
     }
     reconciler = std::move(*created);
 
-    auto capture = shell::CaptureStream::create(loop.get(), connection.get(), next_node_name());
+    auto capture =
+        shell::CaptureStream::create(loop.get(), connection.get(), next_node_name(), ring, queue);
     if (!capture) {
         return std::unexpected{capture.error()};
     }
@@ -160,15 +160,6 @@ std::expected<void, Error> Capture::Impl::build(core::Selection selection, bool 
         return std::unexpected{node_id.error()};
     }
     return reconciler->start(*node_id, kConnectTimeout);
-}
-
-void Capture::Impl::consume(const std::stop_token& stop) {
-    // A raw loop: a polling consumer with a stop condition; no algorithm expresses that.
-    while (!stop.stop_requested()) {
-        deliver_pending();
-        std::this_thread::sleep_for(kConsumerPoll);
-    }
-    deliver_pending();
 }
 
 std::expected<Capture, Error> Capture::open(Options options, Sink sink, Diagnostic diagnostic) {
@@ -182,18 +173,32 @@ std::expected<Capture, Error> Capture::open(Options options, Sink sink, Diagnost
     if (!sink) {
         return std::unexpected{Error::InvalidOptions};
     }
+    // Only the three fixed outputs exist (D-04). Checked before any PipeWire call (API-03).
+    const auto conversion =
+        core::select_conversion(options.sample_rate, static_cast<std::uint32_t>(options.channels));
+    if (!conversion) {
+        return std::unexpected{Error::InvalidOptions};
+    }
 
     init_pipewire_once();
     auto impl = std::make_unique<Impl>();
-    impl->sink = std::move(sink);
     impl->diagnostic = std::move(diagnostic);
     if (const auto built = impl->build(std::move(*selection), options.reconnect); !built) {
         // Queued messages reach the caller before the error does.
         impl->deliver_pending();
         return std::unexpected{built.error()};
     }
-    impl->consumer =
-        std::jthread{[raw = impl.get()](const std::stop_token& stop) { raw->consume(stop); }};
+    auto consumer =
+        shell::Consumer::start(shell::ConsumerConfig{.conversion = *conversion,
+                                                     .format = options.format,
+                                                     .ring = &impl->ring,
+                                                     .diagnostics = &impl->queue,
+                                                     .sink = std::move(sink),
+                                                     .diagnostic = std::move(impl->diagnostic)});
+    if (!consumer) {
+        return std::unexpected{consumer.error()};
+    }
+    impl->consumer = std::move(*consumer);
     return Capture{std::move(impl)};
 }
 

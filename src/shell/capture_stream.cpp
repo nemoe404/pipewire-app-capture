@@ -1,12 +1,19 @@
 #include "shell/capture_stream.hpp"
 
+#include <spa/debug/types.h>
 #include <spa/param/audio/format-utils.h>
+#include <spa/param/audio/type-info.h>
 #include <spa/param/param.h>
 #include <spa/pod/builder.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <ctime>
+#include <format>
+#include <span>
+#include <string>
 #include <utility>
 
 namespace pwcap::shell {
@@ -22,8 +29,11 @@ constexpr std::uint32_t kStreamChannels = 2;
 
 struct StreamCallbacks {
     static void state_changed(void* data, pw_stream_state /*old*/, pw_stream_state state,
-                              const char* /*error*/) {
-        static_cast<CaptureStream*>(data)->on_state_changed(state);
+                              const char* error) {
+        static_cast<CaptureStream*>(data)->on_state_changed(state, error);
+    }
+    static void param_changed(void* data, std::uint32_t id, const spa_pod* param) {
+        static_cast<CaptureStream*>(data)->on_param_changed(id, param);
     }
     static void process(void* data) { static_cast<CaptureStream*>(data)->on_process(); }
 };
@@ -36,6 +46,7 @@ constexpr pw_stream_events make_stream_events() noexcept {
     pw_stream_events events{};
     events.version = PW_VERSION_STREAM_EVENTS;
     events.state_changed = &StreamCallbacks::state_changed;
+    events.param_changed = &StreamCallbacks::param_changed;
     events.process = &StreamCallbacks::process;
     return events;
 }
@@ -44,10 +55,13 @@ constexpr pw_stream_events kStreamEvents = make_stream_events();
 
 } // namespace
 
-CaptureStream::CaptureStream(PrivateTag /*key*/, pw_thread_loop* loop) : loop_{loop} {}
+CaptureStream::CaptureStream(PrivateTag /*key*/, pw_thread_loop* loop,
+                             core::SpscRing<core::StereoFrame>& ring, DiagnosticQueue& diagnostics)
+    : loop_{loop}, ring_{&ring}, diagnostics_{&diagnostics} {}
 
 std::expected<std::unique_ptr<CaptureStream>, pwcap::Error>
-CaptureStream::create(pw_thread_loop* loop, pw_core* core, const std::string& node_name) {
+CaptureStream::create(pw_thread_loop* loop, pw_core* core, const std::string& node_name,
+                      core::SpscRing<core::StereoFrame>& ring, DiagnosticQueue& diagnostics) {
     // Routing is only ever done by links the reconciler makes: node.autoconnect=false, and no
     // target or passive property of any kind (SAFE-03).
     const std::array<spa_dict_item, 4> items{{
@@ -63,7 +77,7 @@ CaptureStream::create(pw_thread_loop* loop, pw_core* core, const std::string& no
         return std::unexpected{pwcap::Error::NoPipeWire};
     }
 
-    auto self = std::make_unique<CaptureStream>(PrivateTag{}, loop);
+    auto self = std::make_unique<CaptureStream>(PrivateTag{}, loop, ring, diagnostics);
     // pw_stream_new takes ownership of the properties.
     self->stream_.reset(pw_stream_new(core, "pwcap capture", props.release()));
     if (!self->stream_) {
@@ -122,20 +136,58 @@ CaptureStream::wait_node_id(std::chrono::milliseconds timeout) {
     return pw_stream_get_node_id(stream_.get());
 }
 
-void CaptureStream::on_state_changed(pw_stream_state state) {
+void CaptureStream::on_state_changed(pw_stream_state state, const char* error) {
     if (state == PW_STREAM_STATE_ERROR) {
         failed_ = true;
+        diagnostics_->post(
+            std::format("Stopped: capture stream error: {}", error != nullptr ? error : "unknown"));
     }
     pw_thread_loop_signal(loop_, false);
 }
 
-void CaptureStream::on_process() {
-    // Real-time callback: no allocation, no lock, no logging. The audio data is discarded until
-    // plan 04-04 puts the ring-buffer push between the dequeue and the queue.
-    pw_buffer* buffer = pw_stream_dequeue_buffer(stream_.get());
-    if (buffer != nullptr) {
-        pw_stream_queue_buffer(stream_.get(), buffer);
+// Runs on the loop thread. The stream asks for F32, 48 kHz, FL/FR and the adapter converts, so
+// anything else negotiated is reported rather than fed to the converter as if it were F32 stereo.
+void CaptureStream::on_param_changed(std::uint32_t id, const spa_pod* param) {
+    if (id != SPA_PARAM_Format || param == nullptr) {
+        return;
     }
+    spa_audio_info_raw info{};
+    if (spa_format_audio_raw_parse(param, &info) < 0) {
+        diagnostics_->post("Stopped: unexpected capture format (not raw audio)");
+        return;
+    }
+    if (info.format == SPA_AUDIO_FORMAT_F32 && info.rate == kStreamRate &&
+        info.channels == kStreamChannels) {
+        return;
+    }
+    // The PipeWire C API takes the type table as a pointer to its first element.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    const char* name = spa_debug_type_find_short_name(spa_type_audio_format, info.format);
+    diagnostics_->post(std::format("Stopped: unexpected capture format {}/{}/{}",
+                                   name != nullptr ? name : "unknown", info.rate, info.channels));
+}
+
+void CaptureStream::on_process() noexcept {
+    // Real-time callback: no allocation, no lock, no logging.
+    // pwcap-rt-begin
+    pw_buffer* const buffer = pw_stream_dequeue_buffer(stream_.get());
+    if (buffer == nullptr) {
+        return;
+    }
+    const spa_buffer* const spa = buffer->buffer;
+    if (spa != nullptr) {
+        const std::span<const spa_data> blocks{spa->datas, spa->n_datas};
+        if (!blocks.empty() && blocks.front().data != nullptr && blocks.front().chunk != nullptr) {
+            const spa_data& block = blocks.front();
+            const std::uint32_t offset = std::min(block.chunk->offset, block.maxsize);
+            const std::uint32_t size = std::min(block.chunk->size, block.maxsize - offset);
+            const std::span<const std::byte> whole{static_cast<const std::byte*>(block.data),
+                                                   block.maxsize};
+            (void)core::push_interleaved(whole.subspan(offset, size), *ring_);
+        }
+    }
+    pw_stream_queue_buffer(stream_.get(), buffer);
+    // pwcap-rt-end
 }
 
 } // namespace pwcap::shell

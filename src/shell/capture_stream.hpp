@@ -6,7 +6,10 @@
 // passive property, and it is connected without the autoconnect flag, so nothing links it
 // except the reconciler acting on core::plan_links output (SAFE-03).
 
+#include "core/pcm.hpp"
+#include "core/spsc_ring.hpp"
 #include "pwcap/capture.hpp"
+#include "shell/diagnostics.hpp"
 #include "shell/pw_handles.hpp"
 
 #include <pipewire/pipewire.h>
@@ -25,11 +28,15 @@ class CaptureStream {
     };
 
 public:
-    // Called with the thread-loop lock held.
+    // Called with the thread-loop lock held. The ring and the queue are non-owning: the owner
+    // keeps both alive longer than the stream. The process callback pushes into the ring; the
+    // loop-thread callbacks post to the queue.
     [[nodiscard]] static std::expected<std::unique_ptr<CaptureStream>, pwcap::Error>
-    create(pw_thread_loop* loop, pw_core* core, const std::string& node_name);
+    create(pw_thread_loop* loop, pw_core* core, const std::string& node_name,
+           core::SpscRing<core::StereoFrame>& ring, DiagnosticQueue& diagnostics);
 
-    CaptureStream(PrivateTag /*key*/, pw_thread_loop* loop);
+    CaptureStream(PrivateTag /*key*/, pw_thread_loop* loop, core::SpscRing<core::StereoFrame>& ring,
+                  DiagnosticQueue& diagnostics);
     CaptureStream(const CaptureStream&) = delete;
     CaptureStream& operator=(const CaptureStream&) = delete;
     CaptureStream(CaptureStream&&) = delete;
@@ -45,10 +52,13 @@ public:
 private:
     friend struct StreamCallbacks;
 
-    void on_state_changed(pw_stream_state state);
-    void on_process();
+    void on_state_changed(pw_stream_state state, const char* error);
+    void on_param_changed(std::uint32_t id, const spa_pod* param);
+    void on_process() noexcept;
 
     pw_thread_loop* loop_;
+    core::SpscRing<core::StereoFrame>* ring_;
+    DiagnosticQueue* diagnostics_;
     // Handle first, then the hook that listens to it (see pw_handles.hpp).
     StreamPtr stream_;
     HookGuard hook_;

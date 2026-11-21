@@ -2,6 +2,7 @@
 // pw_session.hpp and skips with a printed reason unless PWCAP_TEST_PIPEWIRE=1 and `pw-cli info 0`
 // answers. Graph state read from pw-dump is the ground truth; the library never judges itself.
 
+#include "goertzel.hpp"
 #include "pw_session.hpp"
 
 #include "pwcap/capture.hpp"
@@ -15,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -180,6 +182,77 @@ void expect_exact_capture_graph(const Graph& graph, std::string_view capture_pre
     expect_speaker_links_kept(graph, baseline, "during capture");
 }
 
+// The last `capacity` bytes the Sink delivered, plus a running total. The Sink runs on the
+// library's consumer thread, the test reads from its own, hence the mutex. Bounded, in memory only:
+// no captured sample is ever written anywhere (T-04-17).
+class ByteTail {
+public:
+    explicit ByteTail(std::size_t capacity) : capacity_{capacity} {}
+
+    void append(std::span<const std::byte> bytes) {
+        const std::scoped_lock lock{mutex_};
+        tail_.insert(tail_.end(), bytes.begin(), bytes.end());
+        if (tail_.size() > capacity_) {
+            tail_.erase(tail_.begin(),
+                        tail_.begin() + static_cast<std::ptrdiff_t>(tail_.size() - capacity_));
+        }
+        total_ += bytes.size();
+    }
+
+    [[nodiscard]] std::uint64_t total() const {
+        const std::scoped_lock lock{mutex_};
+        return total_;
+    }
+
+    // At most the last `count` bytes.
+    [[nodiscard]] std::vector<std::byte> last(std::size_t count) const {
+        const std::scoped_lock lock{mutex_};
+        const std::size_t take = std::min(count, tail_.size());
+        return {tail_.end() - static_cast<std::ptrdiff_t>(take), tail_.end()};
+    }
+
+private:
+    std::size_t capacity_;
+    mutable std::mutex mutex_;
+    // NOLINTNEXTLINE(readability-redundant-member-init)
+    std::vector<std::byte> tail_{};
+    std::uint64_t total_{0};
+};
+
+// The tone and the distractor were both seen on the speakers, and the tone's speaker links were
+// recorded as the baseline.
+struct OnSpeakers {
+    Graph graph;
+    std::vector<LinkPair> baseline;
+};
+
+[[nodiscard]] std::optional<OnSpeakers> wait_for_speakers(const std::string& tone,
+                                                          const std::string& distractor) {
+    OnSpeakers seen;
+    const bool on_speakers = pwcap::test::wait_until(
+        [&] {
+            seen.graph = pwcap::test::read_graph();
+            return stereo_linked_to_sink(seen.graph, tone) &&
+                   stereo_linked_to_sink(seen.graph, distractor);
+        },
+        3000ms);
+    if (!on_speakers) {
+        return std::nullopt;
+    }
+    seen.baseline = speaker_links(seen.graph, tone);
+    if (seen.baseline.empty()) {
+        return std::nullopt;
+    }
+    return seen;
+}
+
+// Settle after the links appear, then judge a fresh dump: a stray extra link would show up a
+// moment after the expected two, and the exactness check must see it.
+[[nodiscard]] Graph settled_graph() {
+    std::this_thread::sleep_for(300ms);
+    return pwcap::test::read_graph();
+}
+
 } // namespace
 
 // Proves the pw-dump oracle on its own, before any library assertion: a PID-tagged pw-play tone is
@@ -237,14 +310,12 @@ TEST(CaptureGraph, LinksExactlyTheToneAndKeepsSpeakers) {
 
     const std::string capture_prefix = "pwcap-" + std::to_string(::getpid()) + "-";
     std::vector<std::uint32_t> capture_ports;
-    // Byte count only: no captured sample is stored anywhere.
-    std::atomic<std::uint64_t> sink_bytes{0};
+    // The last 4 s of the default 16 kHz mono S16LE output: 128000 bytes, in memory only.
+    ByteTail tail{128000};
     {
         auto opened =
             pwcap::Capture::open(pwcap::Options{.include = {.node_name = tone}},
-                                 [&sink_bytes](std::span<const std::byte> pcm) {
-                                     sink_bytes.fetch_add(pcm.size(), std::memory_order_relaxed);
-                                 });
+                                 [&tail](std::span<const std::byte> pcm) { tail.append(pcm); });
         ASSERT_TRUE(opened.has_value())
             << "Capture::open failed: " << (opened ? "" : pwcap::to_string(opened.error()));
 
@@ -271,6 +342,20 @@ TEST(CaptureGraph, LinksExactlyTheToneAndKeepsSpeakers) {
         const std::vector<const GNode*> captures = graph.nodes_by_prefix(capture_prefix);
         std::ranges::for_each(graph.ports_of(captures.front()->id),
                               [&](const GPort* port) { capture_ports.push_back(port->id); });
+
+        // Level corroboration, only after the graph assertions above passed: 1.5 s of audio (at
+        // 32000 bytes per second) must arrive, and its last second must be the 440 Hz tone and
+        // not the 880 Hz distractor. The tone is 0.1 amplitude, so about 2317 RMS in int16 units.
+        ASSERT_TRUE(pwcap::test::wait_until([&] { return tail.total() >= 48000; }, 4000ms))
+            << "fewer than 1.5 s of audio arrived after linking; got " << tail.total() << " bytes";
+        const std::vector<float> samples = pwcap::test::decode_s16le(tail.last(32000));
+        ASSERT_EQ(samples.size(), 16000U);
+        const double at_tone = pwcap::test::goertzel_power(samples, 440.0, 16000.0);
+        const double at_distractor = pwcap::test::goertzel_power(samples, 880.0, 16000.0);
+        EXPECT_GT(at_tone, 0.0);
+        EXPECT_GE(at_tone, 1000.0 * at_distractor)
+            << "P(440)=" << at_tone << " P(880)=" << at_distractor;
+        EXPECT_GE(pwcap::test::rms(samples), 500.0);
     }
 
     // The Capture is destroyed. Its node must go, the tone must stay on the speakers, and no link
@@ -289,4 +374,67 @@ TEST(CaptureGraph, LinksExactlyTheToneAndKeepsSpeakers) {
         return std::ranges::contains(capture_ports, link.in_port) ||
                std::ranges::contains(capture_ports, link.out_port);
     })) << "a link still has a capture port after teardown";
+}
+
+// The 48 kHz stereo F32LE path (D-04 passthrough). Same graph assertions first; then the left
+// channel of the last second carries the 440 Hz tone and not the 880 Hz distractor.
+TEST(CaptureLevels, Passthrough48kStereoF32CarriesTheTone) {
+    if (const auto why = pwcap::test::skip_reason()) {
+        GTEST_SKIP() << "pipewire integration test skipped: " << *why;
+    }
+
+    const TempDir dir;
+    const std::string tone = tone_name("levels440");
+    const std::string distractor = tone_name("levels880");
+    const Child tone_440 = start_tone(dir, tone, 440.0, 20.0);
+    const Child tone_880 = start_tone(dir, distractor, 880.0, 20.0);
+
+    const std::optional<OnSpeakers> before = wait_for_speakers(tone, distractor);
+    if (!before) {
+        FAIL() << "tone was never linked to a sink";
+    }
+
+    const std::string capture_prefix = "pwcap-" + std::to_string(::getpid()) + "-";
+    // The last 4 s of 48 kHz stereo F32LE: 8 bytes a frame, 1536000 bytes.
+    constexpr std::size_t kBytesPerSecond = std::size_t{48000} * 8;
+    ByteTail tail{kBytesPerSecond * 4};
+    auto opened =
+        pwcap::Capture::open(pwcap::Options{.include = {.node_name = tone},
+                                            .exclude = {},
+                                            .sample_rate = 48000,
+                                            .channels = 2,
+                                            .format = pwcap::SampleFormat::F32LE,
+                                            .reconnect = true},
+                             [&tail](std::span<const std::byte> pcm) { tail.append(pcm); });
+    ASSERT_TRUE(opened.has_value())
+        << "Capture::open failed: " << (opened ? "" : pwcap::to_string(opened.error()));
+
+    Graph graph;
+    const bool linked_in_graph = pwcap::test::wait_until(
+        [&] {
+            graph = pwcap::test::read_graph();
+            const std::vector<const GNode*> captures = graph.nodes_by_prefix(capture_prefix);
+            return captures.size() == 1 && graph.links_into(captures.front()->id).size() >= 2;
+        },
+        3000ms);
+    ASSERT_TRUE(linked_in_graph) << "pw-dump never showed two links into " << capture_prefix << "*";
+    graph = settled_graph();
+    ASSERT_NO_FATAL_FAILURE(
+        expect_exact_capture_graph(graph, capture_prefix, tone, distractor, before->baseline));
+
+    // Levels, only now: 1.5 s of audio is 576000 bytes.
+    ASSERT_TRUE(pwcap::test::wait_until([&] { return tail.total() >= 576000; }, 4000ms))
+        << "fewer than 1.5 s of audio arrived after linking; got " << tail.total() << " bytes";
+    const std::vector<std::byte> bytes = tail.last(kBytesPerSecond);
+    ASSERT_EQ(bytes.size() % 8, 0U);
+    EXPECT_EQ(tail.total() % 8, 0U);
+    const std::vector<float> left = pwcap::test::decode_f32le_channel(bytes, 2, 0);
+    ASSERT_EQ(left.size(), 48000U);
+    const double at_tone = pwcap::test::goertzel_power(left, 440.0, 48000.0);
+    const double at_distractor = pwcap::test::goertzel_power(left, 880.0, 48000.0);
+    EXPECT_GT(at_tone, 0.0);
+    EXPECT_GE(at_tone, 1000.0 * at_distractor)
+        << "P(440)=" << at_tone << " P(880)=" << at_distractor;
+    // A silent buffer would satisfy the ratio with 0 >= 0. The tone is 0.1 amplitude, 0.0707 RMS.
+    EXPECT_GE(pwcap::test::rms(left), 0.02);
 }
