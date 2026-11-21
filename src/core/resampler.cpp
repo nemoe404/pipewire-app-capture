@@ -68,7 +68,8 @@ std::size_t Resampler::max_output_frames(std::size_t input_frames) const noexcep
 
 std::size_t Resampler::process(std::span<const float> interleaved, std::span<float> out) {
     assert(interleaved.size() % channels_ == 0);
-    [[maybe_unused]] const std::size_t frames = interleaved.size() / channels_;  // used only by the assert in Release
+    [[maybe_unused]] const std::size_t frames =
+        interleaved.size() / channels_; // used only by the assert in Release
     assert(out.size() >= max_output_frames(frames));
 
     std::size_t written = 0;
