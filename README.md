@@ -22,10 +22,12 @@ into a capture stream and leaves the application playing on your speakers as bef
 ```cpp
 #include <pwcap/capture.hpp>
 
+#include <chrono>
 #include <cstdio>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 
 int main() {
     pwcap::Options options;
@@ -46,7 +48,8 @@ int main() {
         std::fprintf(stderr, "%s\n", std::string(pwcap::to_string(capture.error())).c_str());
         return 1;
     }
-    // Keep `capture` alive while audio is wanted; destroying it stops the capture.
+    // The capture runs while `capture` is alive; this example records for 10 seconds.
+    std::this_thread::sleep_for(std::chrono::seconds(10));
     return 0;
 }
 ```
@@ -125,10 +128,43 @@ The API is still a pre-release sketch. Its deviations from the first design are 
 - **Not for hiding from anyone.** The library makes no attempt to conceal a capture from the
   application, the desktop, or screen-sharing and proctoring software.
 
+## Dependencies
+
+Tested on Ubuntu with PipeWire 1.6.2 and WirePlumber 0.5.13. Other distributions and versions
+are not tested. Package names below are the Ubuntu ones.
+
+**To build the library**
+
+- clang 21 with C++23 (`clang-21`). The standard library is `libstdc++` from GCC 15
+  (`libstdc++-15-dev`), the one clang picks up on this system. Other compilers are not tested.
+- CMake 3.28 or newer (`cmake`), Ninja (`ninja-build`), pkg-config (`pkg-config`).
+- PipeWire development files (`libpipewire-0.3-dev`), which provide `libpipewire-0.3` for pkg-config.
+- Conan 2 (`pipx install conan`, or `pip install conan`). Conan downloads the test dependencies
+  (GoogleTest 1.15.0 and nlohmann_json 3.12.0) the first time you run it, so this needs network access.
+- For the `asan-ubsan` and `tsan` presets: the clang sanitizer runtimes (`libclang-rt-21-dev`).
+
+**To run the live tests and the examples**
+
+- A running PipeWire session with WirePlumber as the session manager (`pipewire`, `wireplumber`).
+- The PipeWire command-line tools `pw-cli`, `pw-dump`, `pw-link` and `pw-play` (`pipewire-bin`).
+  The test tools need only the Python 3 standard library.
+
+**For development checks (optional)**
+
+- `clang-tidy-21` and `clang-format-21`, used by the lint gates.
+- `cppcheck` is planned for the Phase 6 gate; the scripts that run it do not exist yet.
+
+Install on Ubuntu:
+
+```bash
+sudo apt install clang-21 clang-tidy-21 clang-format-21 libclang-rt-21-dev libstdc++-15-dev \
+    cmake ninja-build pkg-config libpipewire-0.3-dev pipewire pipewire-bin wireplumber
+pipx install conan
+```
+
 ## Build
 
-Requirements: Linux, `libpipewire-0.3` development files, CMake 3.28 or newer, Ninja, Conan 2,
-and clang 21 with C++23. Other compilers are not tested.
+Build with the dependencies above. Other compilers are not tested.
 
 Test dependencies come from Conan, so generate the toolchain first. The profile is in
 `conan/profiles/clang21`. Each build directory has its own `PWCAP_BUILD_ID`:
@@ -148,6 +184,28 @@ the build type.
 Integration tests need a running PipeWire session. They are skipped unless
 `PWCAP_TEST_PIPEWIRE=1` is set and `pw-cli info 0` answers, and the skip is printed. When they
 run, they play quiet test tones through your speakers and check the graph before the levels.
+
+## Link from your project
+
+There is no install step or CMake package yet. Build the library, then compile your program
+against the build tree. The example below uses the `release` build from the previous section
+and the usage example from the top of this file, saved as `app.cpp`:
+
+```bash
+clang++-21 -std=c++23 -O2 -I include app.cpp \
+    build/$PWCAP_BUILD_ID/release/libpwcap.a build/$PWCAP_BUILD_ID/release/libpwcap_core.a \
+    $(pkg-config --cflags --libs libpipewire-0.3) -pthread -o app
+./app > audio.raw
+```
+
+Run it from the repository root, with `$PWCAP_BUILD_ID` set to the id you used for the
+`release` build. Without a PipeWire session the program prints `NoPipeWire` and exits with
+status 1. With a session and an application that plays audio, it writes 16 kHz mono S16LE PCM to
+`audio.raw` while it runs. I checked this with a 440 Hz tone played by `pw-play` (the app name
+was `pw-play`, so the example's `"Zoom"` was changed for that test): the file came out 7.98 s
+long with its peak at 440 Hz. It has not been tested with Zoom.
+
+The command-line tool and the scripting examples are planned, not written. See "Planned".
 
 ## Related projects
 
