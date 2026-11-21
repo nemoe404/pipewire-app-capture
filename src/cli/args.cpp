@@ -14,6 +14,8 @@ namespace pwcap::cli {
 namespace {
 
 constexpr std::string_view kCapture = "capture";
+constexpr std::string_view kList = "list";
+constexpr std::string_view kJsonFlag = "--json";
 constexpr std::string_view kAppFlag = "--app";
 constexpr std::string_view kAppPrefix = "--app=";
 
@@ -25,14 +27,40 @@ constexpr std::string_view kAppPrefix = "--app=";
     return std::unexpected{UsageFailure{.error = error, .index = index}};
 }
 
+// `list` takes only --json, once, and --help. Anything else is an unknown option.
+[[nodiscard]] std::expected<Command, UsageFailure>
+parse_list(std::span<const std::string_view> args) {
+    ListCommand command;
+    bool have_json = false;
+    std::size_t index = 1;
+    // A raw loop: each token is one option and every error reports the index it was found at, the
+    // same walk as the capture branch. No range algorithm stops at a token index.
+    while (index < args.size()) {
+        const std::string_view token = args[index];
+        if (is_help(token)) {
+            return Command{HelpCommand{}};
+        }
+        if (token != kJsonFlag) {
+            return fail(UsageError::UnknownOption, index);
+        }
+        if (have_json) {
+            return fail(UsageError::DuplicateOption, index);
+        }
+        command.json = true;
+        have_json = true;
+        ++index;
+    }
+    return Command{command};
+}
+
 } // namespace
 
 std::string_view describe(UsageError error) noexcept {
     switch (error) {
     case UsageError::MissingCommand:
-        return "missing command; expected 'capture' or --help";
+        return "missing command; expected 'capture', 'list' or --help";
     case UsageError::UnknownCommand:
-        return "unknown command; expected 'capture' or --help";
+        return "unknown command; expected 'capture', 'list' or --help";
     case UsageError::UnknownOption:
         return "unknown option";
     case UsageError::MissingValue:
@@ -53,6 +81,9 @@ std::expected<Command, UsageFailure> parse_command_line(std::span<const std::str
     }
     if (is_help(args.front())) {
         return Command{HelpCommand{}};
+    }
+    if (args.front() == kList) {
+        return parse_list(args);
     }
     if (args.front() != kCapture) {
         return fail(UsageError::UnknownCommand, 0);

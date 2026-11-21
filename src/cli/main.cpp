@@ -3,8 +3,10 @@
 // cli/args and cli/status, which are pure.
 
 #include "cli/args.hpp"
+#include "cli/render.hpp"
 #include "cli/status.hpp"
 #include "pwcap/capture.hpp"
+#include "pwcap/list.hpp"
 
 #include <sys/types.h>
 
@@ -39,14 +41,18 @@ constexpr auto kPollInterval = std::chrono::milliseconds{50};
 // still be killed. SA_RESTART keeps the other system calls going.
 constexpr int kStopFlags = static_cast<int>(SA_RESETHAND | SA_RESTART);
 
-constexpr std::string_view kUsageLine = "usage: pwcap capture --app NAME\n";
+constexpr std::string_view kUsageLine = "usage: pwcap list [--json] | pwcap capture [OPTIONS]\n";
 
 constexpr std::string_view kHelpText =
-    "usage: pwcap capture --app NAME\n"
+    "usage: pwcap list [--json]\n"
+    "       pwcap capture --app NAME\n"
     "       pwcap --help\n"
     "\n"
-    "Captures the audio of application NAME from PipeWire and writes it to stdout as raw PCM:\n"
-    "S16LE, 16 kHz, mono. Diagnostics go to stderr. Stop the capture with SIGINT or SIGTERM.\n";
+    "list prints the applications that have an audio output stream: a header line, then one\n"
+    "tab-separated row per stream. --json prints one JSON array instead.\n"
+    "\n"
+    "capture writes the audio of application NAME to stdout as raw PCM: S16LE, 16 kHz, mono.\n"
+    "Diagnostics go to stderr. Stop the capture with SIGINT or SIGTERM.\n";
 
 // Set by the stop signal handler, which may run on any thread. A lock-free atomic is the only state
 // a signal handler may touch. The handler does not allocate, lock or write.
@@ -84,9 +90,10 @@ extern "C" void on_stop_signal(int /*signo*/) noexcept { g_stop_requested.store(
            install_handler(SIGPIPE, SIG_IGN, 0);
 }
 
-// Writes all of text to fd. Never throws: std::println would throw when the fd is closed, and on
-// the library thread that would end the process instead of stopping cleanly.
-void write_text(int fd, std::string_view text) noexcept {
+// Writes all of text to fd and returns 0, or the errno that stopped the write. Never throws:
+// std::println would throw when the fd is closed, and on the library thread that would end the
+// process instead of stopping cleanly.
+[[nodiscard]] int write_checked(int fd, std::string_view text) noexcept {
     // A raw loop: write(2) may accept part of the text or be interrupted, and no algorithm retries
     // that.
     while (!text.empty()) {
@@ -95,13 +102,19 @@ void write_text(int fd, std::string_view text) noexcept {
             if (errno == EINTR) {
                 continue;
             }
-            return;
+            return errno;
         }
         if (written == 0) {
-            return;
+            return EIO;
         }
         text.remove_prefix(static_cast<std::size_t>(written));
     }
+    return 0;
+}
+
+// Writes all of text to fd. A failed diagnostic write has nowhere to be reported, so it is dropped.
+void write_text(int fd, std::string_view text) noexcept {
+    static_cast<void>(write_checked(fd, text));
 }
 
 // Writes one PCM block to fd 1. A closed reader is recorded as a clean stop, any other failure in
@@ -207,6 +220,25 @@ void report(Shared& shared, bool quiet, std::string_view message) noexcept {
     return exit_status(shared);
 }
 
+// pwcap list: no signal handler, so a closed reader ends the process by SIGPIPE, as `ls | head`
+// does. The listing is written with a checked write, so a stdout error is reported and exits 1.
+[[nodiscard]] int run_list(const cli::ListCommand& command) {
+    const std::expected<std::vector<pwcap::AppStream>, pwcap::Error> listed =
+        pwcap::list_applications();
+    if (!listed) {
+        write_text(STDERR_FILENO, std::format("pwcap: {}\n", pwcap::to_string(listed.error())));
+        return cli::kExitError;
+    }
+    const std::string text = command.json ? cli::render_json(*listed) : cli::render_text(*listed);
+    if (const int err = write_checked(STDOUT_FILENO, text); err != 0) {
+        write_text(STDERR_FILENO,
+                   std::format("pwcap: stdout: {}\n",
+                               std::error_code(err, std::generic_category()).message()));
+        return cli::kExitError;
+    }
+    return cli::kExitOk;
+}
+
 void report_usage(const cli::UsageFailure& failure, std::span<const std::string_view> args) {
     write_text(STDERR_FILENO, std::format("pwcap: {}\n", cli::describe(failure.error)));
     if (failure.index < args.size()) {
@@ -231,6 +263,9 @@ int main(int argc, char** argv) {
     if (std::holds_alternative<cli::HelpCommand>(*parsed)) {
         write_text(STDOUT_FILENO, kHelpText);
         return cli::kExitOk;
+    }
+    if (const auto* list = std::get_if<cli::ListCommand>(&*parsed)) {
+        return run_list(*list);
     }
     return run_capture(std::get<cli::CaptureCommand>(*parsed));
 }
