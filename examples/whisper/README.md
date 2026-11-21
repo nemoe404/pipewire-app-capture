@@ -104,10 +104,3 @@ Options: `--seconds` (1 to 30, default 10), `--language` (default `en`), `--mode
   exited 0, and the last partial chunk was transcribed (`[00:10] He tells us`).
 - `whisper-cli` does not catch SIGINT. Run under a parent that ignores it, the child showed SIGINT
   as ignored in `/proc/<pid>/status`.
-
-## What was not tested
-
-- Zoom, Google Meet or any real call.
-- Other models, other languages, and upstream `whisper.cpp` (only the fork above was run).
-- Long sessions. Each chunk is transcribed independently, so a word that falls on a chunk boundary can
-  be cut or repeated.
