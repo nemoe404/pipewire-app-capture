@@ -43,6 +43,43 @@ inline constexpr std::size_t kCaptureFrameBytes = sizeof(StereoFrame);
 [[nodiscard]] std::size_t push_interleaved(std::span<const std::byte> f32_stereo,
                                            SpscRing<StereoFrame>& ring) noexcept;
 
+// The supported output formats (user decision D-04). The capture stream is always F32 48 kHz FL/FR;
+// these are the only conversions from it to what the consumer asked for.
+enum class Conversion : std::uint8_t {
+    Resample16kMono,      // 48 kHz stereo -> 16 kHz mono through the S2 resampler
+    Passthrough48kStereo, // 48 kHz stereo as captured
+    Downmix48kMono,       // 48 kHz stereo -> 48 kHz mono, the mean of the two channels
+};
+
+enum class ConversionError : std::uint8_t { Unsupported };
+
+// Exactly (16000, 1), (48000, 2) and (48000, 1) are supported; every other pair is Unsupported.
+// The shell maps Unsupported to InvalidOptions before it makes any PipeWire call.
+[[nodiscard]] std::expected<Conversion, ConversionError>
+select_conversion(std::uint32_t sample_rate, std::uint32_t channels) noexcept;
+
+// Channels in the stream a conversion produces.
+[[nodiscard]] constexpr std::uint32_t output_channels(Conversion conversion) noexcept {
+    return conversion == Conversion::Passthrough48kStereo ? 2U : 1U;
+}
+
+// Writes left, right, left, right, ... Requires out.size() >= 2 * in.size().
+void interleave(std::span<const StereoFrame> in, std::span<float> out) noexcept;
+
+// Writes 0.5 * (left + right) per frame. Requires out.size() >= in.size().
+void downmix(std::span<const StereoFrame> in, std::span<float> out) noexcept;
+
+// Signed 16-bit little-endian PCM. NaN becomes 0; other values are clamped to [-1, 1], scaled by
+// 32767 (so -1.0 is -32767, symmetric) and rounded half away from zero. Returns the bytes written,
+// 2 * in.size(). Requires out.size() >= 2 * in.size().
+[[nodiscard]] std::size_t encode_s16le(std::span<const float> in,
+                                       std::span<std::byte> out) noexcept;
+
+// IEEE-754 binary32 little-endian. Returns the bytes written, 4 * in.size(). Requires
+// out.size() >= 4 * in.size().
+[[nodiscard]] std::size_t encode_f32le(std::span<const float> in,
+                                       std::span<std::byte> out) noexcept;
+
 } // namespace pwcap::core
 
 #endif // PWCAP_CORE_PCM_HPP

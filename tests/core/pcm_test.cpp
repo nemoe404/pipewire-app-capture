@@ -100,9 +100,18 @@ TEST(PcmConversion, SupportedTable) {
         Conversion conversion;
         std::uint32_t out_channels;
     };
-    for (const Row row : {Row{16000, 1, Conversion::Resample16kMono, 1},
-                          Row{48000, 2, Conversion::Passthrough48kStereo, 2},
-                          Row{48000, 1, Conversion::Downmix48kMono, 1}}) {
+    for (const Row row : {Row{.rate = 16000,
+                              .channels = 1,
+                              .conversion = Conversion::Resample16kMono,
+                              .out_channels = 1},
+                          Row{.rate = 48000,
+                              .channels = 2,
+                              .conversion = Conversion::Passthrough48kStereo,
+                              .out_channels = 2},
+                          Row{.rate = 48000,
+                              .channels = 1,
+                              .conversion = Conversion::Downmix48kMono,
+                              .out_channels = 1}}) {
         const std::expected<Conversion, ConversionError> selected =
             select_conversion(row.rate, row.channels);
         ASSERT_TRUE(selected.has_value()) << row.rate << "/" << row.channels;
