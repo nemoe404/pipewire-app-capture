@@ -17,8 +17,20 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-26.04
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - uses: actions/checkout@v4
+      - name: Restore compiler and dependency caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/.conan2
+          key: ci-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'conanfile.py', 'conan/profiles/**', '**/*.cpp', '**/*.hpp') }}
+          restore-keys: |
+            ci-${{ runner.os }}-
       - name: Install toolchain
         run: sudo bash scripts/ci/install-toolchain.sh 21
       - name: Confirm that no PipeWire session answers (the no-daemon tests depend on it)
@@ -59,8 +71,20 @@ jobs:
   integration:
     runs-on: ubuntu-26.04
     needs: gate
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - uses: actions/checkout@v4
+      - name: Restore compiler and dependency caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/.conan2
+          key: ci-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'conanfile.py', 'conan/profiles/**', '**/*.cpp', '**/*.hpp') }}
+          restore-keys: |
+            ci-${{ runner.os }}-
       - name: Install toolchain
         run: sudo bash scripts/ci/install-toolchain.sh 21 --with-pipewire-session
       # Session and tests share one step: a PipeWire started in one dbus-run-session dies when that

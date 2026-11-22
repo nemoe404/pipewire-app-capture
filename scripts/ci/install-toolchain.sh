@@ -9,7 +9,7 @@ session=${2:-}
 apt-get update
 # pipewire-bin ships /usr/share/pipewire/client.conf: without it libpipewire logs config warnings to
 # stderr, which the no-daemon tests reject. It does not start a daemon.
-apt-get install -y cmake ninja-build cppcheck python3-pip wget ca-certificates libpipewire-0.3-dev pipewire-bin
+apt-get install -y cmake ninja-build cppcheck ccache python3-pip wget ca-certificates libpipewire-0.3-dev pipewire-bin
 if [[ $session == --with-pipewire-session ]]; then
     apt-get install -y pipewire wireplumber dbus-x11
     pipewire --version
