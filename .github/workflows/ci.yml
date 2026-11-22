@@ -37,7 +37,8 @@ jobs:
           for f in build/gate/logs/*.ctest.log; do
             [ -f "$f" ] || continue
             echo "== $f"
-            tail -n 120 "$f"
+            grep -n -A30 -E '^[0-9]+/[0-9]+ Test.*Failed' "$f" | head -n 400
+            tail -n 40 "$f"
           done
           cmake --version | head -n 1
           for f in build/gate/*/*_tests.cmake; do

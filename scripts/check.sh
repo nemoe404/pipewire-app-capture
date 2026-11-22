@@ -69,7 +69,7 @@ for leg in asan-ubsan tsan debug release; do
         exit 1
     }
     status=0
-    ctest --preset "$leg" >"$logs/$leg.ctest.log" 2>&1 || status=$?
+    ctest --preset "$leg" --output-on-failure >"$logs/$leg.ctest.log" 2>&1 || status=$?
     summary=$(grep -E 'tests (passed|failed)' "$logs/$leg.ctest.log" || true)
     skipped=$(grep -c '\*\*\*Skipped' "$logs/$leg.ctest.log" || true)
     echo "leg $leg: ${summary:-no ctest summary} skipped=$skipped"
