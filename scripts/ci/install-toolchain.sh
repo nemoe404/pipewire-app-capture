@@ -7,9 +7,11 @@ set -euo pipefail
 ver=${1:?usage: install-toolchain.sh <llvm-major> [--with-pipewire-session]}
 session=${2:-}
 apt-get update
-apt-get install -y cmake ninja-build cppcheck python3-pip wget ca-certificates libpipewire-0.3-dev
+# pipewire-bin ships /usr/share/pipewire/client.conf: without it libpipewire logs config warnings to
+# stderr, which the no-daemon tests reject. It does not start a daemon.
+apt-get install -y cmake ninja-build cppcheck python3-pip wget ca-certificates libpipewire-0.3-dev pipewire-bin
 if [[ $session == --with-pipewire-session ]]; then
-    apt-get install -y pipewire wireplumber pipewire-bin dbus-x11
+    apt-get install -y pipewire wireplumber dbus-x11
     pipewire --version
 fi
 # apt.llvm.org provides clang-21, clang-tidy-21 and clang-format-21 on this runner.
