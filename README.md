@@ -80,6 +80,100 @@ The API is still a pre-release sketch. Its deviations from the first design are 
 - Examples that run against the installed tool: a shell one-liner, a Python consumer and a
   `whisper.cpp` pipeline (see "Examples").
 
+## Architecture
+
+The code has three layers. The public header uses only `std` types. The shell is the only code
+that includes PipeWire, and it owns the threads. The core is pure value types and functions with
+no I/O, so it is tested without a PipeWire session.
+
+### Components
+
+```mermaid
+flowchart LR
+    subgraph app["Your process"]
+        sink["Sink callback (your code)"]
+        cli["pwcap CLI (src/cli)"]
+    end
+    subgraph pub["include/pwcap (std types only)"]
+        api["Capture, Options, Error, list_applications"]
+    end
+    subgraph shell["src/shell (the only code that includes PipeWire)"]
+        loop["PipeWire thread loop, registry, reconciler"]
+        stream["Capture stream and process callback"]
+        ring["SPSC ring of StereoFrame"]
+        cons["Consumer thread"]
+    end
+    subgraph core["src/core (pure, no I/O)"]
+        match["Match and Selection"]
+        planner["plan_links"]
+        pcm["interleave, downmix, S16LE and F32LE encode"]
+        resamp["polyphase FIR resampler"]
+    end
+    pw[("PipeWire daemon")]
+
+    cli --> api
+    api --> loop
+    loop --> planner
+    planner --> match
+    loop <--> pw
+    stream <--> pw
+    stream --> ring
+    ring --> cons
+    cons --> pcm
+    cons --> resamp
+    cons --> sink
+```
+
+### Sequence: from `Capture::open` to the sink
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Your application
+    participant Cap as Capture (public API)
+    participant Shell as Shell (loop, reconciler, stream)
+    participant Core as Core (planner)
+    participant PW as PipeWire daemon
+    participant Cons as Consumer thread
+    participant Sink as Sink callback
+
+    App->>Cap: open(Options, Sink, Diagnostic)
+    Cap->>Core: validate options, build Selection
+    Cap->>Shell: connect context (before the loop thread starts)
+    Shell->>PW: create capture stream (F32, 48 kHz, FL/FR, autoconnect=false)
+    PW-->>Shell: registry events (global, info, done)
+    Shell->>Core: plan_links(snapshot, selection, capture inputs)
+    Core-->>Shell: LinkPlan (links to add, foreign links to remove)
+    Shell->>PW: link the application's output ports to the capture inputs
+    loop each quantum (real-time PipeWire thread)
+        PW->>Shell: process callback with F32 stereo
+        Shell->>Shell: copy frames into the ring (no allocation, lock or log)
+    end
+    loop consumer thread
+        Cons->>Cons: pop up to 4800 frames (100 ms), or wait 5 ms
+        Cons->>Cons: convert (resample, passthrough or downmix)
+        Cons->>Cons: encode S16LE or F32LE
+        Cons->>Sink: bytes
+    end
+    App->>Cap: destroy
+    Cap->>Shell: stop consumer, remove our links, destroy stream, loop
+```
+
+### Audio processing
+
+| Stage | What happens |
+|---|---|
+| Stream format | The capture stream always runs as F32, 48 kHz, stereo (FL, FR), with `node.autoconnect=false`. The library never asks the server to pick a source. |
+| Linking | `plan_links` connects the application's output ports to the capture inputs by channel: FL to FL, FR to FR, and a MONO port matches either side. The application's own links to the speakers are not touched, so you keep hearing it. |
+| Real-time copy | The process callback copies each frame (8 bytes, left and right) into a single-producer, single-consumer ring of 96 000 frames, which is 2 s at 48 kHz. Nothing is allocated, locked or logged on that path. |
+| Overrun | When the ring is full the oldest frame is dropped. The drop count is reported through the diagnostic callback as `Overrun: dropped N frames`. |
+| Consumer | One thread pops up to 4 800 frames per block (100 ms) and sleeps 5 ms when the ring is empty. It calls your sink, and never a PipeWire function. |
+| Conversion | 48 kHz stereo to 48 kHz stereo is a passthrough. 48 kHz stereo to 48 kHz mono is the mean of left and right. 48 kHz stereo to 16 kHz mono runs the polyphase FIR resampler with the `hann-8` filter: a Hann-windowed sinc with 8 output periods on each side of its centre, and a cutoff at 0.9 of the 8 kHz output Nyquist. |
+| Encoding | S16LE: each sample is clamped to [-1, 1] and rounded to `round(x * 32767)`. F32LE: the float samples are written as they are. |
+
+The output size is fixed by the conversion and the format. For example, 16 kHz mono S16LE is two
+bytes per sample, 32 000 bytes per second.
+
 ## Limits (read before you rely on it)
 
 - **Linux with PipeWire only.** PulseAudio is supported through `pipewire-pulse`, not as a
