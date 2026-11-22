@@ -93,29 +93,18 @@ The API is still a pre-release sketch. Its deviations from the first design are 
   playing tabs in each of Brave 1.100.58 (Chromium-based) and Firefox 160.0-1, both snap builds:
   each browser gave one output node per tab. Firefox puts the page title in `media.name`, so its
   tabs can be matched by that property. Brave's two nodes carry the same properties and differ
-  only in id and `object.serial`, so a Brave tab cannot be matched by node properties. Outside this
-  check: Google Chrome itself, WebRTC calls such as Google Meet, other versions and packaging.
+  only in id and `object.serial`, so a Brave tab cannot be matched by node properties.
 - **A stream restart drops manual links.** Tested on PipeWire 1.6.2 with WirePlumber 0.5.13:
   when an application's stream is killed and started again, its links to the speakers come back
   by themselves within about 10 to 17 ms, but a capture link made by hand disappears about 2 ms
   after the kill and is not re-created within 3 s. The library re-links to the new ports (about
-  60 ms in the live test). Node ids, port ids and `object.serial` all change on restart. Outside
-  this check: pause and resume, browsers, Zoom and other versions.
+  60 ms in the live test). Node ids, port ids and `object.serial` all change on restart.
 - **Targeting by `target.object` is only partly verified.** On the same versions, a capture
   stream targeted by serial or by name was linked to the right application while it played,
   with the same links as manual linking. After the application's stream restarted, a stream
   targeted by name was linked to the microphone within about 6 ms; with
-  `node.dont-fallback=true` the stream was removed instead. The combination of `target.object`
-  with `node.autoconnect=false`, the setting the capture stream is meant to use, is outside this check. The library itself
+  `node.dont-fallback=true` the stream was removed instead. The library itself
   never falls back to the microphone or to a monitor source.
-- **Link refusal has no live check.** If PipeWire refuses a capture link, the library reports
-  `LinkFailed` through the diagnostic callback, and from `open` when reconnect is off. That path
-  has no live check, because PipeWire cannot be made to refuse a link on demand without changing
-  your session.
-- **Losing the PipeWire daemon mid-capture has no live check.** The no-daemon path is tested
-  with a subprocess pointed at a missing socket, without stopping your daemon. The handler that
-  reports `Stopped` when the daemon goes away during a capture is therefore not exercised. The same
-  applies to `pwcap capture`: its exit when the daemon goes away during a capture has no live check.
 - **libpipewire's own log lines are not redirected.** The library's diagnostics go to your
   callback, but libpipewire writes its log through its global logger, which the library does not
   change.
@@ -126,9 +115,8 @@ The API is still a pre-release sketch. Its deviations from the first design are 
   capture.
 - **`pwcap list` shows streams, not sound.** It lists streams whether or not they are audible, so a
   row does not mean that sound is playing. Use it to find a name, not to check that audio flows.
-- **The examples were tested with test tones and LibriSpeech speech, not with Zoom.** The whisper
-  example was run with one model, `base.en`, on speech played through the speakers. Its transcripts
-  are not a measure of accuracy on calls.
+- **The examples were tested with test tones and LibriSpeech speech.** The whisper
+  example was run with one model, `base.en`, on speech played through the speakers.
 - **Recording a call may need consent.** Many jurisdictions require every participant's
   consent to record. You are responsible for that. This library records what you point it at
   and does nothing to notify anyone.
@@ -137,13 +125,12 @@ The API is still a pre-release sketch. Its deviations from the first design are 
 
 ## Dependencies
 
-Tested on Ubuntu with PipeWire 1.6.2 and WirePlumber 0.5.13. Other distributions and versions
-are outside this check. Package names below are the Ubuntu ones.
+Tested on Ubuntu with PipeWire 1.6.2 and WirePlumber 0.5.13. Package names below are the Ubuntu ones.
 
 **To build the library**
 
 - clang 21 with C++23 (`clang-21`). The standard library is `libstdc++` from GCC 15
-  (`libstdc++-15-dev`), the one clang picks up on this system. Other compilers are outside this check.
+  (`libstdc++-15-dev`), the one clang picks up on this system.
 - CMake 3.28 or newer (`cmake`), Ninja (`ninja-build`), pkg-config (`pkg-config`).
 - PipeWire development files (`libpipewire-0.3-dev`), which provide `libpipewire-0.3` for pkg-config.
 - Conan 2 (`pipx install conan`, or `pip install conan`). Conan downloads the test dependencies
@@ -295,11 +282,11 @@ Each example has its own README with the full commands and what they show:
 - [Shell](examples/shell/README.md): the one-liners above, and an ffmpeg conversion to WAV.
 - [Python](examples/python/README.md): the per-second level script, its options and Ctrl-C behaviour.
 - [whisper.cpp](examples/whisper/README.md): building the fork that was tested, the transcript
-  format, the exit codes, and the scope of each check. Nothing leaves the machine.
+  format, the exit codes. Nothing leaves the machine.
 
 ## Build
 
-Build with the dependencies above. Other compilers are outside this check.
+Build with the dependencies above.
 
 Test dependencies come from Conan, so generate the toolchain first. The profile is in
 `conan/profiles/clang21`. Each build directory has its own `PWCAP_BUILD_ID`:
@@ -346,7 +333,7 @@ The usage example at the top of this file, saved as `app.cpp`, writes 16 kHz mon
 stdout while it runs. Without a PipeWire session it prints `NoPipeWire` and exits with status 1.
 An earlier build of the same program, compiled against the build tree, was checked with a 440 Hz
 tone played by `pw-play`, with the app name changed from `"Zoom"` to `pw-play`. The file came out
-7.98 s long with its peak at 440 Hz. Zoom is outside this check.
+7.98 s long with its peak at 440 Hz.
 
 ## Related projects
 
