@@ -46,7 +46,7 @@ inline constexpr std::size_t kCaptureFrameBytes = sizeof(StereoFrame);
 // The supported output formats (user decision D-04). The capture stream is always F32 48 kHz FL/FR;
 // these are the only conversions from it to what the consumer asked for.
 enum class Conversion : std::uint8_t {
-    Resample16kMono,      // 48 kHz stereo -> 16 kHz mono through the S2 resampler
+    Resample16kMono,      // 48 kHz stereo -> 16 kHz mono through the resampler
     Passthrough48kStereo, // 48 kHz stereo as captured
     Downmix48kMono,       // 48 kHz stereo -> 48 kHz mono, the mean of the two channels
 };

@@ -38,10 +38,10 @@ export WHISPER_CLI="$PWD/build/bin/whisper-cli"
 export WHISPER_MODEL="$PWD/models/ggml-base.en.bin"
 ```
 
-What was run in this phase: the existing build of this fork from the earlier spike was used, at
+What was run: an existing build of this fork, at
 commit `0d0f753` with `CMAKE_BUILD_TYPE=Release`, binary `build/bin/whisper-cli`, and the model
 `models/ggml-base.en.bin`. The clone, the configure and build steps, and the model download above
-were not run again in this phase. `WHISPER_CLI` and `WHISPER_MODEL` were set to those paths for the
+were not run again for this README. `WHISPER_CLI` and `WHISPER_MODEL` were set to those paths for the
 runs below.
 
 ## Speech source

@@ -146,7 +146,7 @@ TEST(PlannerRules, MonitorPortOnSelectedStreamNeverLinked) {
 }
 
 TEST(PlannerRules, TwoStreamsOfOneAppBothLinked) {
-    // Brave publishes one stream node per tab (s0-item4): both belong to the application.
+    // Brave publishes one stream node per tab: both belong to the application.
     GraphBuilder graph;
     graph.node(10, "tab-a", "Brave", kStreamOut);
     graph.node(30, "tab-b", "Brave", kStreamOut);
@@ -160,10 +160,10 @@ TEST(PlannerRules, TwoStreamsOfOneAppBothLinked) {
 }
 
 TEST(PlannerRules, ExcludedTabNotLinked) {
-    // Firefox tab nodes (s0-item4): the exclude on tab 880 leaves only tab 440 linked.
+    // Firefox tab nodes: the exclude on tab 880 leaves only tab 440 linked.
     GraphBuilder graph;
-    graph.node(10, "tab-440", "Firefox", kStreamOut, "pwspike-tab-440");
-    graph.node(30, "tab-880", "Firefox", kStreamOut, "pwspike-tab-880");
+    graph.node(10, "tab-440", "Firefox", kStreamOut, "pwprobe-tab-440");
+    graph.node(30, "tab-880", "Firefox", kStreamOut, "pwprobe-tab-880");
     graph.node(20, "recorder", "pw-cat", kStreamIn);
     graph.port(10, 11, kOut, "FL").port(10, 12, kOut, "FR");
     graph.port(30, 31, kOut, "FL").port(30, 32, kOut, "FR");
@@ -171,7 +171,7 @@ TEST(PlannerRules, ExcludedTabNotLinked) {
     const std::array<PortId, 2> inputs{21, 22};
     const auto selection = selection_of(
         app("Firefox"),
-        {Match{.media_name = Pattern{.text = "pwspike-tab-880", .kind = MatchKind::Exact}}});
+        {Match{.media_name = Pattern{.text = "pwprobe-tab-880", .kind = MatchKind::Exact}}});
     const auto plan = plan_links(graph.snapshot(), selection, inputs);
     EXPECT_EQ(plan.to_add, links({link(11, 21), link(12, 22)}));
 }
@@ -258,18 +258,18 @@ TEST(PlannerRules, DanglingReferencesAreSafe) {
 }
 
 TEST(PlannerRules, RestartRegressionRecycledIds) {
-    // s0-item3 case 3A after the respawn: node 104 came back with serial 1993 (it was 1968), and
+    // After the respawn: node 104 came back with serial 1993 (it was 1968), and
     // port 138, which used to be FR, is now FL. The recorder inputs are 133 FL and 129 FR.
     GraphBuilder graph;
-    graph.node(104, "pwspike-tone440", "pw-play", kStreamOut);
-    graph.node(90, "pwspike-rec", "pw-cat", kStreamIn);
+    graph.node(104, "pwprobe-tone440", "pw-play", kStreamOut);
+    graph.node(90, "pwprobe-rec", "pw-cat", kStreamIn);
     graph.node(31, "alsa_output.pci-0000_00_1f.3.analog-stereo", "", "Audio/Sink");
     graph.port(104, 138, kOut, "FL").port(104, 108, kOut, "FR");
     graph.port(90, 133, kIn, "FL").port(90, 129, kIn, "FR");
     graph.port(31, 40, kIn, "FL").port(31, 47, kIn, "FR");
     graph.link(138, 40).link(108, 47);
     const auto selection = selection_of(
-        Match{.node_name = Pattern{.text = "pwspike-tone440", .kind = MatchKind::Exact}});
+        Match{.node_name = Pattern{.text = "pwprobe-tone440", .kind = MatchKind::Exact}});
     const std::array<PortId, 2> inputs{133, 129};
 
     const auto fresh = plan_links(graph.snapshot(), selection, inputs);

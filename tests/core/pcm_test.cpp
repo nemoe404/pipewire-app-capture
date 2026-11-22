@@ -220,7 +220,7 @@ double goertzel_power(std::span<const double> samples, double freq_hz, double ra
 }
 
 // The exact chain the consumer runs for a 16 kHz mono output: interleave, hann8 resampler, S16LE.
-// hann8 is the filter chosen by spike S2 (docs/spikes/s2-resampler.md).
+// hann8 is the filter chosen by the resampler quality measurement.
 TEST(PcmChain, Resample48kStereoTo16kMonoKeepsTone) {
     constexpr std::size_t kSeconds = 1;
     constexpr std::size_t kTotalFrames = kCaptureRate * kSeconds;

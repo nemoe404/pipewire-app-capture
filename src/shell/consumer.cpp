@@ -32,7 +32,7 @@ std::expected<std::unique_ptr<Consumer>, pwcap::Error> Consumer::start(ConsumerC
     }
     std::optional<core::Resampler> resampler;
     if (config.conversion == core::Conversion::Resample16kMono) {
-        // hann8 is the filter spike S2 chose (docs/spikes/s2-resampler.md).
+        // hann8 is the filter chosen by the resampler quality measurement.
         auto made = core::Resampler::make(core::kCaptureRate, core::kCaptureChannels,
                                           core::FilterCandidate::Hann8);
         if (!made) {

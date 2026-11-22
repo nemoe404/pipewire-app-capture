@@ -82,8 +82,10 @@ struct ProbeRun {
 [[nodiscard]] std::vector<char*> null_terminated_pointers(std::vector<std::string>& storage) {
     std::vector<char*> pointers;
     pointers.reserve(storage.size() + 1);
-    std::ranges::transform(storage, std::back_inserter(pointers),
-                           [](std::string& entry) { return entry.data(); });
+    std::ranges::transform(
+        storage, std::back_inserter(pointers),
+        // cppcheck-suppress constParameterReference ; argv is char*, so data() must be non-const
+        [](std::string& entry) { return entry.data(); });
     pointers.push_back(nullptr);
     return pointers;
 }
@@ -279,7 +281,7 @@ TEST(OpenErrors, WildcardExcludeIsInvalidMatch) {
     pwcap::Options options;
     options.include.node_name = "x";
     options.exclude.push_back(pwcap::Match{});
-    const auto result = pwcap::Capture::open(std::move(options), discarding_sink());
+    const auto result = pwcap::Capture::open(options, discarding_sink());
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), pwcap::Error::InvalidMatch);
 }
@@ -287,7 +289,7 @@ TEST(OpenErrors, WildcardExcludeIsInvalidMatch) {
 TEST(OpenErrors, EmptySinkIsInvalidOptions) {
     pwcap::Options options;
     options.include.node_name = "x";
-    const auto result = pwcap::Capture::open(std::move(options), pwcap::Sink{});
+    const auto result = pwcap::Capture::open(options, pwcap::Sink{});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), pwcap::Error::InvalidOptions);
 }
@@ -356,14 +358,14 @@ TEST(Handles, LoopAndContextLifecycleWithoutDaemon) {
 // ---- RegistryProps ---------------------------------------------------------------------------
 
 TEST(RegistryProps, NodeFromBoundProps) {
-    // The shape of a Firefox node's bound props (s0-item4).
+    // The shape of a Firefox node's bound props.
     const Props props{{"object.serial", "2201"},
                       {"node.name", "Firefox"},
                       {"application.name", "Firefox"},
                       {"application.process.binary", "firefox"},
                       {"application.process.id", "528076"},
                       {"media.class", "Stream/Output/Audio"},
-                      {"media.name", "pwspike-tab-440"}};
+                      {"media.name", "pwprobe-tab-440"}};
     const auto node_opt = pwcap::shell::node_from_props(77, props.dict());
     const auto& node = require(node_opt);
     EXPECT_EQ(node.id, 77U);
@@ -372,7 +374,7 @@ TEST(RegistryProps, NodeFromBoundProps) {
     EXPECT_EQ(node.app_name, "Firefox");
     EXPECT_EQ(node.binary, "firefox");
     EXPECT_EQ(node.media_class, "Stream/Output/Audio");
-    EXPECT_EQ(node.media_name, "pwspike-tab-440");
+    EXPECT_EQ(node.media_name, "pwprobe-tab-440");
     ASSERT_TRUE(node.pid.has_value());
     EXPECT_EQ(require(node.pid), 528076);
 }

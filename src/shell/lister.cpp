@@ -28,7 +28,7 @@ namespace pwcap {
 
 namespace {
 
-// Every call is bounded by this timer on the caller's main loop (T-05-07).
+// Every call is bounded by this timer on the caller's main loop.
 constexpr int kDeadlineSeconds = 2;
 
 class Lister;
@@ -305,7 +305,7 @@ void Lister::quit() const { static_cast<void>(pw_main_loop_quit(loop_.get())); }
 
 namespace shell {
 
-std::vector<AppStream> to_app_streams(std::vector<core::NodeInfo> nodes) {
+std::vector<AppStream> to_app_streams(const std::vector<core::NodeInfo>& nodes) {
     auto streams = nodes | std::views::filter([](const core::NodeInfo& node) {
                        return node.media_class == core::kStreamOutputAudio;
                    }) |

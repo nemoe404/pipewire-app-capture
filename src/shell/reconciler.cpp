@@ -354,7 +354,7 @@ void Reconciler::on_global(std::uint32_t id, const char* type, const spa_dict* p
         entry->info_seen = !bind;
         if (bind) {
             // A stream's registry props lack media.name and the binary: bind it and wait for its
-            // first info before it may be matched (T-04-03).
+            // first info before it may be matched.
             void* bound = pw_registry_bind(registry_of(registry_), id, PW_TYPE_INTERFACE_Node,
                                            PW_VERSION_NODE, 0);
             if (bound == nullptr) {
@@ -396,7 +396,7 @@ void Reconciler::on_global_remove(std::uint32_t id) {
             owned_links_.erase(owned);
         }
     }
-    // Ids are recycled (s0-item3): a link we asked for between a port's old and new life must not
+    // Ids are recycled: a link we asked for between a port's old and new life must not
     // be taken for a link between the new ports.
     if (ports_.contains(id)) {
         std::erase_if(owned_links_, [id](const auto& entry) {
@@ -584,14 +584,14 @@ void Reconciler::reconcile() {
     // linked(): a registry link, pending links excluded, from a selected source to a capture input.
     const std::vector<core::NodeId> sources = core::select_sources(snapshot, selection_);
     track_sources(sources);
-    const bool linked = std::ranges::any_of(snapshot.links, [&](const core::LinkInfo& link) {
+    const bool now_linked = std::ranges::any_of(snapshot.links, [&](const core::LinkInfo& link) {
         const auto output =
             std::ranges::find(snapshot.ports, link.output_port_id, &core::PortInfo::port_id);
         return output != snapshot.ports.end() && !output->monitor &&
                std::ranges::contains(sources, output->node_id) &&
                std::ranges::contains(inputs, link.input_port_id);
     });
-    linked_.store(linked);
+    linked_.store(now_linked);
 
     // Plan against the registry plus the links we asked for and the registry has not announced.
     // Without them, the done event of a sync sent before a link request would create it twice.

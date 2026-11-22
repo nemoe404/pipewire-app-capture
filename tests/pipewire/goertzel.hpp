@@ -2,8 +2,8 @@
 #define PWCAP_TESTS_PIPEWIRE_GOERTZEL_HPP
 
 // In-memory level checks for the integration tests. Everything works on buffers the test already
-// holds; no PCM is written to any file (T-04-17). Levels corroborate the graph assertions, they
-// never replace them. Plan 04-06 reuses this header.
+// holds; no PCM is written to any file. Levels corroborate the graph assertions, they
+// never replace them.
 
 #include <algorithm>
 #include <cmath>

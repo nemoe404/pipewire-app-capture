@@ -13,7 +13,7 @@ namespace pwcap::core {
 
 struct LinkPlan {
     // Plain result aggregate: the shell and tests read and designated-initialise both lists, and
-    // making them private would change the public signature that plan 02-05 reads in parallel.
+    // making them private would change the public signature that other modules already read.
     // The empty initialisers are kept so -Wmissing-designated-field-initializers stays quiet.
     // NOLINTBEGIN(misc-non-private-member-variables-in-classes,readability-redundant-member-init)
     std::vector<LinkInfo> to_add{};
@@ -43,7 +43,7 @@ struct LinkPlan {
 // Pairing. A source port and a capture input pair when their channel names are equal, or when
 // either one is MONO. Nothing else pairs, so FC or LFE into an FL/FR capture get no link. The MONO
 // rule is covered by unit tests on this pure function only; that the server mixes several links
-// into one MONO input port is NOT verified (open item for the Phase 4 graph test).
+// into one MONO input port is NOT verified (open item for the graph test).
 //
 // to_add: paired links absent from the snapshot. to_remove: links in the snapshot that end at a
 // usable capture input and are not paired (stale, cross-channel, microphone, monitor, dangling).

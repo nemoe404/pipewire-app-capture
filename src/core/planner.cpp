@@ -38,7 +38,7 @@ bool is_source_port(const PortInfo& port) {
 
 // Equal channel names pair; a MONO port on either side pairs with everything on the other side.
 // The pure planner only returns the pairs. That the server mixes several links into one MONO
-// input port is not verified (open item for the Phase 4 graph test).
+// input port is not verified (open item for the graph test).
 bool channels_pair(const PortInfo& source, const PortInfo& input) {
     return source.channel == input.channel || source.channel == kChannelMono ||
            input.channel == kChannelMono;

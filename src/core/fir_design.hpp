@@ -2,8 +2,8 @@
 #define PWCAP_CORE_FIR_DESIGN_HPP
 
 // Windowed-sinc prototype filters for the rational resampler. Pure: no I/O, no allocation other
-// than the returned vector. Three candidates of increasing cost; Phase 3 (S2) measures them by
-// word error rate and picks the simplest one that is within tolerance.
+// than the returned vector. Three candidates of increasing cost; a word error rate measurement
+// compares them and picks the simplest one that is within tolerance.
 
 #include <array>
 #include <cstddef>

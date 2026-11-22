@@ -65,9 +65,10 @@ namespace {
 
 // Writes the low `out.size()` bytes of `bits`, least significant first, whatever the host order.
 void store_little_endian(std::span<std::byte> out, std::uint32_t bits) noexcept {
-    std::ranges::generate(out, [&bits] {
-        const auto byte = static_cast<std::byte>(bits & 0xFFU);
-        bits >>= 8U;
+    std::uint32_t remaining = bits; // local copy: the parameter itself is never reassigned
+    std::ranges::generate(out, [&remaining] {
+        const auto byte = static_cast<std::byte>(remaining & 0xFFU);
+        remaining >>= 8U;
         return byte;
     });
 }

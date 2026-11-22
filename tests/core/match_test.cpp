@@ -93,20 +93,20 @@ TEST(MatchRules, EmptyTextIsWildcard) {
 
 TEST(MatchRules, AllNonEmptyFieldsMustHit) {
     const Match match{.app_name = Pattern{.text = "Firefox", .kind = MatchKind::Exact},
-                      .media_name = Pattern{.text = "pwspike-tab-440", .kind = MatchKind::Exact}};
-    EXPECT_TRUE(matches(match, firefox_tab("pwspike-tab-440")));
-    EXPECT_FALSE(matches(match, firefox_tab("pwspike-tab-880")));
+                      .media_name = Pattern{.text = "pwprobe-tab-440", .kind = MatchKind::Exact}};
+    EXPECT_TRUE(matches(match, firefox_tab("pwprobe-tab-440")));
+    EXPECT_FALSE(matches(match, firefox_tab("pwprobe-tab-880")));
 
-    NodeInfo wrong_app = firefox_tab("pwspike-tab-440");
+    NodeInfo wrong_app = firefox_tab("pwprobe-tab-440");
     wrong_app.app_name = "Brave";
     EXPECT_FALSE(matches(match, wrong_app));
 }
 
 TEST(MatchRules, NonEmptyPatternNeverHitsEmptyField) {
-    // s0-item2: application.process.binary is null for pw-play, so the field is empty.
+    // application.process.binary is null for pw-play, so the field is empty.
     NodeInfo pw_play;
     pw_play.app_name = "pw-play";
-    pw_play.node_name = "pwspike-tone440";
+    pw_play.node_name = "pwprobe-tone440";
 
     const Match binary{.binary = Pattern{.text = "pw-play", .kind = MatchKind::Exact}};
     EXPECT_FALSE(matches(binary, pw_play));
@@ -141,20 +141,20 @@ TEST(Selection, AllWildcardIncludeOrExcludeIsInvalid) {
 
 TEST(Selection, ExcludeKeepsOnlyTab440) {
     const Match include{.app_name = Pattern{.text = "Firefox", .kind = MatchKind::Exact}};
-    const Match exclude{.media_name = Pattern{.text = "pwspike-tab-880", .kind = MatchKind::Exact}};
+    const Match exclude{.media_name = Pattern{.text = "pwprobe-tab-880", .kind = MatchKind::Exact}};
     const auto selection = Selection::make(include, std::vector<Match>{exclude});
     ASSERT_TRUE(selection.has_value());
 
-    EXPECT_TRUE(selection->selects(firefox_tab("pwspike-tab-440")));
-    EXPECT_FALSE(selection->selects(firefox_tab("pwspike-tab-880")));
+    EXPECT_TRUE(selection->selects(firefox_tab("pwprobe-tab-440")));
+    EXPECT_FALSE(selection->selects(firefox_tab("pwprobe-tab-880")));
 
-    NodeInfo other_app = firefox_tab("pwspike-tab-440");
+    NodeInfo other_app = firefox_tab("pwprobe-tab-440");
     other_app.app_name = "Brave";
     EXPECT_FALSE(selection->selects(other_app));
 
     const auto no_exclude = Selection::make(include);
     ASSERT_TRUE(no_exclude.has_value());
-    EXPECT_TRUE(no_exclude->selects(firefox_tab("pwspike-tab-880")));
+    EXPECT_TRUE(no_exclude->selects(firefox_tab("pwprobe-tab-880")));
     EXPECT_TRUE(no_exclude->exclude().empty());
 }
 

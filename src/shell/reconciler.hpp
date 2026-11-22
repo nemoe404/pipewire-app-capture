@@ -132,7 +132,7 @@ private:
 
     // Node-based containers: PipeWire keeps the addresses of the hooks and the callback data
     // stored in the entries, so entries must never move. Keys are global ids, which PipeWire
-    // recycles (s0-item3), so nothing is ever indexed by position.
+    // recycles, so nothing is ever indexed by position.
     std::map<std::uint32_t, std::unique_ptr<NodeEntry>> nodes_;
     std::map<std::uint32_t, core::PortInfo> ports_;
     std::map<std::uint32_t, core::LinkInfo> links_;

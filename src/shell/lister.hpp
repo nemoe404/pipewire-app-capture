@@ -13,7 +13,7 @@ namespace pwcap::shell {
 
 // Keeps only the Stream/Output/Audio nodes (defence in depth: the lister binds only those), copies
 // every field one to one, and sorts by app_name, then by serial.
-[[nodiscard]] std::vector<AppStream> to_app_streams(std::vector<core::NodeInfo> nodes);
+[[nodiscard]] std::vector<AppStream> to_app_streams(const std::vector<core::NodeInfo>& nodes);
 
 } // namespace pwcap::shell
 

@@ -225,7 +225,7 @@ TEST(Options, SupportedFormatsPassValidation) {
     }
 }
 
-// Regression test for a hang found in plan 04-06: with no daemon, `open` started the loop thread,
+// Regression test for a hang: with no daemon, `open` started the loop thread,
 // failed to connect and stopped the thread again at once, and in libpipewire 1.6.2 the stop request
 // was lost about once in a few hundred opens, so the destructor joined forever. One open is not
 // enough to see it; the count is high enough to hit the old code in most runs. If this test ever

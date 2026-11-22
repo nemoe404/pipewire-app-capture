@@ -128,7 +128,7 @@ if(PWCAP_BUILD_TESTS)
     find_package(GTest CONFIG REQUIRED)
     include(GoogleTest)
 
-    # nlohmann_json is the pw-dump oracle for tests/pipewire (plan 04-02); test executables only.
+    # nlohmann_json is the pw-dump oracle for tests/pipewire ; test executables only.
     find_package(nlohmann_json CONFIG REQUIRED)
 
     if(TARGET pwcap)
@@ -159,7 +159,7 @@ if(PWCAP_BUILD_TESTS)
             list(APPEND PWCAP_PROBE_DEPENDENT_TESTS ${test_target})
         endforeach()
 
-        # Opt-in integration tests (files arrive in plan 04-02). They need a PipeWire session and
+        # Opt-in integration tests . They need a PipeWire session and
         # skip themselves without PWCAP_TEST_PIPEWIRE=1; ctest must report that as Skipped, not Passed.
         # One session, so they never run in parallel with each other.
         file(GLOB PWCAP_PIPEWIRE_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/pipewire/*_test.cpp)
@@ -212,7 +212,7 @@ if(PWCAP_BUILD_TESTS)
         endif()
     endif()
 
-    # Public-header gates, filled in by plan 04-06. Nothing is created here when the files are absent.
+    # Public-header gates. Nothing is created here when the files are absent.
     file(GLOB PWCAP_API_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/api/*.cpp)
     if(PWCAP_API_SOURCES)
         add_library(pwcap_public_header_check OBJECT ${PWCAP_API_SOURCES})
@@ -230,7 +230,7 @@ if(PWCAP_BUILD_TESTS)
                          -P ${PROJECT_SOURCE_DIR}/cmake/public_headers.cmake)
         set_tests_properties(public_headers_std_only public_headers_std_only_selftest PROPERTIES LABELS api)
     else()
-        message(STATUS "public_headers: gate files from plan 04-06 not present")
+        message(STATUS "public_headers: gate files not present")
     endif()
 
     file(GLOB PWCAP_CORE_TEST_SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/core/*_test.cpp)
@@ -244,7 +244,7 @@ if(PWCAP_BUILD_TESTS)
             PROPERTIES LABELS core TIMEOUT 120)
     endforeach()
 
-    # Hygiene tests come from plan 02-02; register them only once both files exist.
+    # Hygiene tests; register them only once both files exist.
     file(GLOB PWCAP_HYGIENE_SCRIPT CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/cmake/core_hygiene.cmake)
     file(GLOB PWCAP_HYGIENE_FIXTURE CONFIGURE_DEPENDS
          ${PROJECT_SOURCE_DIR}/tests/core/hygiene_fixtures/violations.txt)
@@ -258,6 +258,6 @@ if(PWCAP_BUILD_TESTS)
                          -P ${PROJECT_SOURCE_DIR}/cmake/core_hygiene.cmake)
         set_tests_properties(core_hygiene core_hygiene_selftest PROPERTIES LABELS core)
     else()
-        message(STATUS "core_hygiene: script from plan 02-02 not present; hygiene tests not registered")
+        message(STATUS "core_hygiene: script not present; hygiene tests not registered")
     endif()
 endif()

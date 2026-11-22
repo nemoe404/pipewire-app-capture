@@ -36,15 +36,15 @@ PortInfo make_port(NodeId node, PortId port, Direction direction, std::string ch
                     .monitor = monitor};
 }
 
-// The graph of s0-item2 case 2a: two pw-play streams, the sink, a microphone and the recorder.
-GraphSnapshot spike_graph() {
+// Two pw-play streams, the sink, a microphone and the recorder.
+GraphSnapshot pw_play_graph() {
     GraphSnapshot graph;
     graph.nodes = {
-        make_node(126, 1814, "pwspike-tone440", "pw-play", std::string{kStreamOutputAudio}),
-        make_node(133, 1815, "pwspike-tone880", "pw-play", std::string{kStreamOutputAudio}),
+        make_node(126, 1814, "pwprobe-tone440", "pw-play", std::string{kStreamOutputAudio}),
+        make_node(133, 1815, "pwprobe-tone880", "pw-play", std::string{kStreamOutputAudio}),
         make_node(40, 40, kSinkName, "", "Audio/Sink"),
         make_node(50, 50, kSourceName, "", "Audio/Source"),
-        make_node(104, 1827, "pwspike-rec-serial", "pw-cat", std::string{kStreamInputAudio}),
+        make_node(104, 1827, "pwprobe-rec-serial", "pw-cat", std::string{kStreamInputAudio}),
     };
     graph.ports = {
         make_port(126, 124, Direction::Output, "FL"),
@@ -88,8 +88,8 @@ Selection node_name_selection(std::string name) {
 constexpr std::array<PortId, 2> kCaptureInputs{138, 130};
 
 TEST(PlannerTracer, LinksOnlyTheSelectedStreamByChannel) {
-    const auto snapshot = spike_graph();
-    const auto plan = plan_links(snapshot, node_name_selection("pwspike-tone440"), kCaptureInputs);
+    const auto snapshot = pw_play_graph();
+    const auto plan = plan_links(snapshot, node_name_selection("pwprobe-tone440"), kCaptureInputs);
 
     const std::vector<LinkInfo> expected{
         LinkInfo{.output_port_id = 124, .input_port_id = 138},
@@ -100,8 +100,8 @@ TEST(PlannerTracer, LinksOnlyTheSelectedStreamByChannel) {
 }
 
 TEST(PlannerTracer, SamePlanTwiceAndEmptyAfterApply) {
-    const auto snapshot = spike_graph();
-    const auto selection = node_name_selection("pwspike-tone440");
+    const auto snapshot = pw_play_graph();
+    const auto selection = node_name_selection("pwprobe-tone440");
 
     const auto first = plan_links(snapshot, selection, kCaptureInputs);
     const auto second = plan_links(snapshot, selection, kCaptureInputs);
@@ -113,7 +113,7 @@ TEST(PlannerTracer, SamePlanTwiceAndEmptyAfterApply) {
 }
 
 TEST(PlannerTracer, MicrophoneNameSelectsNothing) {
-    const auto snapshot = spike_graph();
+    const auto snapshot = pw_play_graph();
     const auto selection = node_name_selection(kSourceName);
 
     EXPECT_TRUE(select_sources(snapshot, selection).empty());
