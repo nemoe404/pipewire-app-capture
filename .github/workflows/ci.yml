@@ -6,7 +6,9 @@ name: ci
 on:
   push:
     branches: [main, release-build]
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
   workflow_dispatch:
 
 permissions:
