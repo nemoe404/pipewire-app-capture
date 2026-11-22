@@ -10,6 +10,7 @@ apt-get update
 apt-get install -y cmake ninja-build cppcheck python3-pip wget ca-certificates libpipewire-0.3-dev
 if [[ $session == --with-pipewire-session ]]; then
     apt-get install -y pipewire wireplumber pipewire-bin dbus-x11
+    pipewire --version
 fi
 # apt.llvm.org provides clang-21, clang-tidy-21 and clang-format-21 on this runner.
 wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
@@ -19,4 +20,3 @@ apt-get install -y "clang-tidy-$ver" "clang-format-$ver"
 pip install --break-system-packages "conan>=2,<3"
 # pip installs into ~/.local/bin on the runner; the next steps must see it.
 echo "$HOME/.local/bin" >>"${GITHUB_PATH:-/dev/null}"
-pipewire --version
