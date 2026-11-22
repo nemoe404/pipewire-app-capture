@@ -32,6 +32,12 @@ jobs:
             echo "== $f"
             tail -n 120 "$f"
           done
+          cmake --version | head -n 1
+          for f in build/gate/*/*_tests.cmake; do
+            [ -f "$f" ] || continue
+            echo "== $f (line 9, columns 100-200)"
+            sed -n '9p' "$f" | cut -c100-200
+          done | head -n 40
       - name: Upload gate logs
         if: always()
         uses: actions/upload-artifact@v4
