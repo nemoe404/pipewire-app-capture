@@ -24,6 +24,21 @@ jobs:
           CLANG_FORMAT: clang-format-21
           CLANG_TIDY: clang-tidy-21
         run: scripts/check.sh
+      - name: Show the failing leg's test log
+        if: failure()
+        run: |
+          for f in build/gate/logs/*.ctest.log; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            tail -n 120 "$f"
+          done
+      - name: Upload gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs
+          path: build/gate/logs/
+          if-no-files-found: ignore
 
   integration:
     runs-on: ubuntu-26.04
