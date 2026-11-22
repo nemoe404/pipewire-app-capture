@@ -1,5 +1,7 @@
 # pipewire-audio-capture
 
+[![CI](https://github.com/nemoe404/pipewire-app-capture/actions/workflows/ci.yml/badge.svg)](https://github.com/nemoe404/pipewire-app-capture/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/nemoe404/pipewire-app-capture)](https://github.com/nemoe404/pipewire-app-capture/releases/latest) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 Capture the audio of **one application** on Linux (a Zoom call, a Google Meet tab, a media
 player) without recording the system mix or your microphone. The audio goes out as raw PCM
 (pulse-code modulation: uncompressed samples, no header) into a C++ callback, ready for a
