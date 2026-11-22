@@ -5,10 +5,10 @@ player) without recording the system mix or your microphone. The audio goes out 
 (pulse-code modulation: uncompressed samples, no header) into a C++ callback, ready for a
 script, `whisper.cpp`, or any other consumer.
 
-> **Status: pre-alpha.** The C++ library works on PipeWire 1.6.2: `Capture::open` links one
+> **Status: v0.1.0.** The C++ library works on PipeWire 1.6.2: `Capture::open` links one
 > application's output into a capture stream and delivers PCM to your callback. The command-line
-> tool (`pwcap`) and three examples (shell, Python, whisper.cpp) exist. A release tag does not
-> exist yet; anything marked "planned" below does not exist yet.
+> tool (`pwcap`) and three examples (shell, Python, whisper.cpp) are part of this release. See
+> [CHANGELOG.md](CHANGELOG.md) for what was verified.
 
 ## Why
 
@@ -79,10 +79,6 @@ The API is still a pre-release sketch. Its deviations from the first design are 
 - `pwcap list` and `pwcap capture` command-line tools, described in "Command-line tool" below.
 - Examples that run against the installed tool: a shell one-liner, a Python consumer and a
   `whisper.cpp` pipeline (see "Examples").
-
-## Planned
-
-- Release `v0.1.0` with the verified PipeWire version and browser limits in the release notes.
 
 ## Limits (read before you rely on it)
 
