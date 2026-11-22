@@ -172,7 +172,7 @@ if(PWCAP_BUILD_TESTS)
             gtest_discover_tests(${test_target}
                 DISCOVERY_MODE PRE_TEST
                 PROPERTIES LABELS pipewire TIMEOUT 120 RESOURCE_LOCK pipewire_session
-                           SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
+                           SKIP_REGULAR_EXPRESSION "\\[ +SKIPPED")
             list(APPEND PWCAP_PROBE_DEPENDENT_TESTS ${test_target})
             list(APPEND PWCAP_CLI_EXE_TESTS ${test_target})
         endforeach()
