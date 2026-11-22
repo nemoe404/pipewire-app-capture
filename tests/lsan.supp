@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions. Each entry names the reason next to it.
+#
+# libpipewire 1.6.2 leaks memory that it allocates while loading modules in pw_context_new, when
+# no daemon answers the connection (pw_context_load_module, reached from pw_context_parse_conf_section).
+# The leaked blocks are owned by libpipewire, not by this project; the context itself is destroyed
+# by the RAII handle in src/shell/capture.cpp. The no-daemon tests require an empty stderr, and the
+# leak report is written to stderr at exit, so the report would fail them. The suppression matches
+# frames inside libpipewire only. Remove it when a libpipewire release stops leaking on that path.
+leak:libpipewire-0.3
