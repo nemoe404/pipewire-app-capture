@@ -19,6 +19,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install toolchain
         run: sudo bash scripts/ci/install-toolchain.sh 21
+      - name: Confirm that no PipeWire session answers (the no-daemon tests depend on it)
+        run: |
+          if pw-cli info 0 >/dev/null 2>&1; then
+            echo "gate: a PipeWire session answers, the no-daemon tests would fail" >&2
+            exit 1
+          fi
+          echo "gate: no PipeWire session, as expected"
       - name: Gate (format, legs, cppcheck, clang-tidy)
         env:
           CLANG_FORMAT: clang-format-21
@@ -52,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
-        run: sudo bash scripts/ci/install-toolchain.sh 21
+        run: sudo bash scripts/ci/install-toolchain.sh 21 --with-pipewire-session
       # Session and tests share one step: a PipeWire started in one dbus-run-session dies when that
       # step exits, so the daemons must live for the whole test run.
       - name: PipeWire session with a null sink, then pipewire-labelled tests (fail on any skip)
